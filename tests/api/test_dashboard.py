@@ -33,3 +33,16 @@ def test_write_dashboard(sample_paper: Paper, tmp_path: Path) -> None:
     write_dashboard(data, out)
     assert out.exists()
     assert out.read_text(encoding="utf-8").rstrip().endswith("</html>")
+
+
+def test_dashboard_entrypoint_lives_in_api(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from typer.testing import CliRunner
+
+    from api.dashboard import app
+
+    sample = Path(__file__).resolve().parents[2] / "data" / "papers" / "sample.json"
+    monkeypatch.chdir(tmp_path)
+    out = tmp_path / "out" / "dashboard.html"
+    result = CliRunner().invoke(app, [str(sample), "--out", str(out), "--trials", "2"])
+    assert result.exit_code == 0, result.output
+    assert out.exists()

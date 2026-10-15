@@ -1,12 +1,17 @@
-"""Command-line entry point for the crude end-to-end trace.
+"""Command-line entry point: generate papers, forge leaks, trace them.
 
 ``python -m examfp.cli generate <paper.json> --centres N --out DIR`` writes one
 ``centre_<id>.txt`` per centre (the paper rendered as text for that centre's
-symbol vector) plus ``codebook.json``.
+symbol vector) plus the codebook. With ``--encrypt`` the codebook is only ever
+written as an AES-GCM envelope (``codebook.json.enc``, key from ``TRACE_KEK``)
+and ``trace``/``demo`` decrypt it in memory. Side effects live here; the
+library modules stay pure. The dashboard lives in ``api/`` (``python -m
+api.dashboard``) so this package depends on no repo tooling.
 """
 
 from __future__ import annotations
 
+import os
 import random
 import time
 from collections.abc import Mapping
@@ -16,7 +21,16 @@ from typing import Annotated
 import typer
 
 from examfp.attacks import crop, retype, typos
-from examfp.codebook.assign import assign, load_codebook, save_codebook
+from examfp.codebook.assign import Codebook, assign, dumps_codebook, loads_codebook
+from examfp.codebook.crypto import (
+    DecryptionError,
+    EnvVault,
+    Vault,
+    VaultError,
+    is_sealed,
+    open_sealed,
+    seal,
+)
 from examfp.codebook.tardos import TardosCode, bits_per_paper, simulate_pirate
 from examfp.decode.read import read_leak
 from examfp.decode.score import score
@@ -27,7 +41,82 @@ app = typer.Typer(add_completion=False, help="examfp end-to-end trace.")
 
 @app.callback()
 def main() -> None:
-    """examfp end-to-end trace (crude: no Tardos/RS/crypto/ML)."""
+    """examfp: generate fingerprinted papers, forge leaks, trace them."""
+
+
+CODEBOOK_PLAIN = "codebook.json"
+CODEBOOK_SEALED = "codebook.json.enc"
+_PURPOSE = "codebook"
+
+
+def _fail(message: str) -> typer.Exit:
+    typer.echo(f"error: {message}", err=True)
+    return typer.Exit(code=2)
+
+
+def vault_from_env(encrypt: bool) -> Vault | None:
+    """Return the env-var vault when encrypting; exit cleanly if its key is unusable."""
+    if not encrypt:
+        return None
+    try:
+        return EnvVault.from_environ(os.environ)
+    except VaultError as exc:
+        raise _fail(str(exc)) from None
+
+
+def write_codebook(book: Codebook, directory: Path, vault: Vault | None) -> Path:
+    """Write the codebook into ``directory``; with a vault, only an envelope touches disk."""
+    directory.mkdir(parents=True, exist_ok=True)
+    if vault is None:
+        path = directory / CODEBOOK_PLAIN
+        path.write_text(dumps_codebook(book), encoding="utf-8")
+    else:
+        path = directory / CODEBOOK_SEALED
+        path.write_bytes(seal(dumps_codebook(book).encode("utf-8"), vault, purpose=_PURPOSE))
+    return path
+
+
+def read_codebook(path: Path) -> Codebook:
+    """Read a plaintext or sealed codebook; sealed ones are decrypted in memory only."""
+    data = path.read_bytes()
+    if not is_sealed(data):
+        return loads_codebook(data.decode("utf-8"))
+    try:
+        vault = EnvVault.from_environ(os.environ)
+        return loads_codebook(open_sealed(data, vault, purpose=_PURPOSE).decode("utf-8"))
+    except (VaultError, DecryptionError) as exc:
+        raise _fail(str(exc)) from None
+
+
+def write_centre_papers(paper: Paper, book: Codebook, directory: Path) -> None:
+    """Render every centre's paper to ``centre_<id>.txt`` in ``directory``."""
+    directory.mkdir(parents=True, exist_ok=True)
+    for centre, symbols in book.items():
+        (directory / f"centre_{centre}.txt").write_text(
+            render_text(paper, symbols), encoding="utf-8"
+        )
+
+
+def ensure_codebook(paper: Paper, directory: Path, vault: Vault | None) -> Codebook:
+    """Load the 1,000-centre demo codebook from ``directory``, generating it if missing.
+
+    Guarantees: never silently uses a codebook built by an older scheme (for
+    example the pre-M5 mixed-radix one), and never overwrites it - it exits with
+    instructions instead.
+    """
+    expected = assign(paper, 1000, seed=0)
+    path = directory / (CODEBOOK_PLAIN if vault is None else CODEBOOK_SEALED)
+    if not path.exists():
+        typer.echo(f"{path} missing -> generating 1000 centres ...")
+        write_centre_papers(paper, expected, directory)
+        write_codebook(expected, directory, vault)
+        return expected
+    if read_codebook(path) != expected:
+        raise _fail(
+            f"{path} was not built by the current codebook scheme (1,000 centres, seed 0, "
+            f"Reed-Solomon). Delete {directory} to regenerate it."
+        )
+    return expected
 
 
 def render_text(paper: Paper, symbols: Mapping[tuple[str, str], int]) -> str:
@@ -48,30 +137,33 @@ def generate(
     paper_path: Annotated[Path, typer.Argument(help="Path to the paper JSON.")],
     centres: Annotated[int, typer.Option(help="Number of centres to generate.")] = 1000,
     out: Annotated[Path, typer.Option(help="Output directory.")] = Path("out"),
-    seed: Annotated[int, typer.Option(help="Affine scramble offset.")] = 0,
+    seed: Annotated[int, typer.Option(help="Codebook seed (picks centre messages).")] = 0,
+    encrypt: Annotated[
+        bool, typer.Option("--encrypt/--no-encrypt", help="Seal the codebook (key: TRACE_KEK).")
+    ] = False,
 ) -> None:
     """Generate per-centre text papers and a codebook."""
+    vault = vault_from_env(encrypt)  # fail before writing anything
     paper = Paper.model_validate_json(paper_path.read_text(encoding="utf-8"))
-    out.mkdir(parents=True, exist_ok=True)
-
     codebook = assign(paper, centres, seed)
-    for centre, symbols in codebook.items():
-        (out / f"centre_{centre}.txt").write_text(
-            render_text(paper, symbols), encoding="utf-8"
-        )
-    save_codebook(codebook, out / "codebook.json")
-    typer.echo(f"wrote {len(codebook)} centre files + codebook.json to {out}")
+    write_centre_papers(paper, codebook, out)
+    path = write_codebook(codebook, out, vault)
+    typer.echo(f"wrote {len(codebook)} centre files + {path.name} to {out}")
+    if vault is not None and (out / CODEBOOK_PLAIN).exists():
+        typer.echo(f"warning: an earlier plaintext {CODEBOOK_PLAIN} is still in {out}")
 
 
 @app.command()
 def trace(
     leak_path: Annotated[Path, typer.Argument(help="Path to the leaked paper text.")],
-    codebook: Annotated[Path, typer.Option(help="Path to codebook.json.")],
+    codebook: Annotated[
+        Path, typer.Option(help="Path to codebook.json or codebook.json.enc.")
+    ],
     paper: Annotated[Path, typer.Option(help="Path to the paper JSON.")],
 ) -> None:
     """Trace a leaked paper back to its centre."""
     paper_model = Paper.model_validate_json(paper.read_text(encoding="utf-8"))
-    book = load_codebook(codebook)
+    book = read_codebook(codebook)
     leak = leak_path.read_text(encoding="utf-8")
 
     observations = read_leak(leak, paper_model)
@@ -89,14 +181,21 @@ def trace(
         typer.echo(f"  {qid}::{slot} = {symbol} (conf {conf:.2f})")
 
 
-def _centre_symbols(paper: Paper, centre: int, seed: int = 0) -> dict[tuple[str, str], int]:
-    return assign(paper, centre + 1, seed)[centre]
+def _centre_symbols(paper: Paper, centre: int, n_centres: int) -> dict[tuple[str, str], int]:
+    # The RS codebook depends on the total centre count (message length k and the
+    # sampled messages), so forge from the same codebook `generate` would build.
+    if not 0 <= centre < n_centres:
+        raise _fail(f"centre {centre} is outside 0..{n_centres - 1}")
+    return assign(paper, n_centres, seed=0)[centre]
 
 
 @app.command()
 def leak(
     paper_path: Annotated[Path, typer.Argument(help="Path to the paper JSON.")],
     centre: Annotated[int, typer.Option(help="Centre id to leak.")],
+    centres: Annotated[
+        int, typer.Option(help="Centres in the generated codebook (as for generate).")
+    ] = 1000,
     questions: Annotated[int, typer.Option(help="Questions to keep (crop).")] = 6,
     typos_rate: Annotated[float, typer.Option("--typos", help="Typo swap rate.")] = 0.03,
     retype_leak: Annotated[
@@ -105,10 +204,10 @@ def leak(
     out: Annotated[Path, typer.Option(help="Output leak file.")] = Path("leak.txt"),
     seed: Annotated[int, typer.Option(help="Attack RNG seed.")] = 0,
 ) -> None:
-    """Forge a degraded leak of one centre's paper (crude codebook path)."""
+    """Forge a degraded leak of one centre's paper (practical-mode codebook)."""
     paper = Paper.model_validate_json(paper_path.read_text(encoding="utf-8"))
     rng = random.Random(seed)
-    text = render_text(paper, _centre_symbols(paper, centre))
+    text = render_text(paper, _centre_symbols(paper, centre, centres))
     text = crop(text, questions, rng)
     if retype_leak:
         text = retype(text)  # a leaker retypes first, then fat-fingers typos
@@ -123,23 +222,15 @@ def demo(
         "data/papers/sample.json"
     ),
     seed: Annotated[int, typer.Option(help="RNG seed (centre + attack).")] = 0,
+    encrypt: Annotated[
+        bool, typer.Option("--encrypt/--no-encrypt", help="Seal the codebook (key: TRACE_KEK).")
+    ] = False,
 ) -> None:
     """Tell the whole story: generate, leak, trace, and report."""
     start = time.perf_counter()
+    vault = vault_from_env(encrypt)
     paper = Paper.model_validate_json(paper_path.read_text(encoding="utf-8"))
-
-    out_dir = Path("out")
-    codebook_path = out_dir / "codebook.json"
-    if not codebook_path.exists():
-        typer.echo("out/ missing -> generating 1000 centres ...")
-        book = assign(paper, 1000, seed=0)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        for c, symbols in book.items():
-            (out_dir / f"centre_{c}.txt").write_text(
-                render_text(paper, symbols), encoding="utf-8"
-            )
-        save_codebook(book, codebook_path)
-    book = load_codebook(codebook_path)
+    book = ensure_codebook(paper, Path("out"), vault)
 
     rng = random.Random(seed)
     centre = rng.choice(list(book.keys()))
@@ -164,36 +255,6 @@ def demo(
     typer.echo(f"verdict: {result.outcome.value}   margin: {result.margin:.2f}")
     typer.echo(f"elapsed: {elapsed_ms:.0f} ms")
     typer.echo("QR-code baseline: no result (mark absent from retyped text)")
-
-
-@app.command()
-def dashboard(
-    paper_path: Annotated[Path, typer.Argument(help="Path to the paper JSON.")] = Path(
-        "data/papers/sample.json"
-    ),
-    out: Annotated[Path, typer.Option(help="Output HTML file.")] = Path("out/dashboard.html"),
-    trials: Annotated[int, typer.Option(help="Sweep trials per k.")] = 100,
-    seed: Annotated[int, typer.Option(help="RNG seed.")] = 0,
-) -> None:
-    """Build a self-contained static HTML dashboard."""
-    from api.dashboard import collect, write_dashboard
-
-    paper = Paper.model_validate_json(paper_path.read_text(encoding="utf-8"))
-    codebook_path = Path("out") / "codebook.json"
-    if not codebook_path.exists():
-        typer.echo("out/ missing -> generating 1000 centres ...")
-        book = assign(paper, 1000, seed=0)
-        codebook_path.parent.mkdir(parents=True, exist_ok=True)
-        for c, symbols in book.items():
-            (codebook_path.parent / f"centre_{c}.txt").write_text(
-                render_text(paper, symbols), encoding="utf-8"
-            )
-        save_codebook(book, codebook_path)
-    book = load_codebook(codebook_path)
-
-    data = collect(paper, book, seed=seed, n_trials=trials)
-    write_dashboard(data, out)
-    typer.echo(f"wrote dashboard to {out}  (open it in a browser)")
 
 
 @app.command()

@@ -1,4 +1,4 @@
-"""Tests for scoring and the three acceptance outcomes."""
+"""Tests for the decision rule: consistency gate, read floor, collusion hypothesis."""
 
 from __future__ import annotations
 
@@ -71,3 +71,120 @@ def test_tie_at_top_is_insufficient() -> None:
     result = score({("q1", "lead"): (0, 1.0)}, codebook)
     assert result.outcome is Outcome.INSUFFICIENT
     assert result.margin == pytest.approx(0.0)
+
+
+# --- M5.5: consistency gate ---------------------------------------------------------------------
+# Ten positions. A colluded leak: p0-p4 from A (all 0), p5-p9 from B (all 1).
+# INNOCENT matches 8 of the 10 read slots: the nearest single centre, yet it
+# never sent anything. The ungated rule names INNOCENT with margin 7.2 (see
+# tests/eval/test_baselines.py); the gate must not.
+P = [("q", f"p{i}") for i in range(10)]
+A, B, INNOCENT = 1, 2, 3
+HYBRID = {p: (0 if i < 5 else 1, 1.0) for i, p in enumerate(P)}
+TOY = {
+    A: {p: 0 for p in P},
+    B: {p: 1 for p in P},
+    INNOCENT: {p: v for p, v in zip(P, [0, 0, 0, 0, 2, 1, 1, 1, 1, 2], strict=True)},
+    **{c: {p: 9 for p in P} for c in range(10, 30)},  # unrelated centres
+}
+STRICT = {"misread_rate": 0.0, "min_read_slots": 5}
+
+
+def test_gate_runs_before_margin_and_never_names_the_nearest_innocent() -> None:
+    result = score(HYBRID, TOY, **STRICT)
+    assert result.outcome is not Outcome.IDENTIFIED
+    assert result.consistent == 0  # nobody explains all ten slots
+
+
+def test_unique_minimal_covering_set_is_reported_as_a_hypothesis() -> None:
+    result = score(HYBRID, TOY, **STRICT)
+    assert result.outcome is Outcome.COLLUSION_SUSPECTED
+    assert result.explaining_set == (A, B)  # INNOCENT cannot help explain p4 or p9 in a pair
+
+
+def test_ambiguous_minimal_cover_is_insufficient() -> None:
+    # Make INNOCENT explain p4: now {A, B} and {INNOCENT, B} both cover -> no unique hypothesis.
+    toy = dict(TOY)
+    toy[INNOCENT] = {**TOY[INNOCENT], P[4]: 0}
+    result = score(HYBRID, toy, **STRICT)
+    assert result.outcome is Outcome.INSUFFICIENT
+    assert result.explaining_set == ()
+
+
+def test_collusion_hypothesis_respects_the_read_floor() -> None:
+    result = score(HYBRID, TOY, misread_rate=0.0, min_read_slots=11)
+    assert result.outcome is Outcome.INSUFFICIENT
+
+
+def test_cover_search_never_reports_a_partial_result() -> None:
+    result = score(HYBRID, TOY, **STRICT, cover_node_budget=1)
+    assert result.outcome is Outcome.INSUFFICIENT  # budget exhausted -> refuse
+
+
+def test_single_source_leak_is_identified() -> None:
+    leak = {p: (TOY[A][p], 1.0) for p in P}
+    result = score(leak, TOY, **STRICT)
+    assert result.outcome is Outcome.IDENTIFIED
+    assert result.ranked[0][0] == A and result.consistent == 1
+    assert result.explaining_set == ()
+
+
+def test_read_floor_blocks_identification_on_thin_leaks() -> None:
+    leak = {p: (TOY[B][p], 1.0) for p in P[:4]}
+    assert score(leak, TOY, misread_rate=0.0, min_read_slots=4).outcome is Outcome.IDENTIFIED
+    assert score(leak, TOY, misread_rate=0.0, min_read_slots=5).outcome is Outcome.INSUFFICIENT
+
+
+def test_tolerance_comes_from_the_calibrated_misread_rate() -> None:
+    from examfp.decode.calibrate import mismatch_tolerance
+
+    leak = {p: (TOY[A][p], 1.0) for p in P}
+    leak[P[3]] = (7, 1.0)  # one misread slot in a genuine leak from A
+    strict = score(leak, TOY, misread_rate=0.0, min_read_slots=5)
+    assert strict.tolerance == 0 and strict.outcome is not Outcome.IDENTIFIED
+    lenient = score(leak, TOY, misread_rate=0.01, false_rejection_budget=1e-3, min_read_slots=5)
+    assert lenient.tolerance == mismatch_tolerance(10, 0.01, 1e-3) >= 1
+    assert lenient.outcome is Outcome.IDENTIFIED and lenient.ranked[0][0] == A
+
+
+def test_tied_survivors_are_insufficient() -> None:
+    twin = {**TOY, 99: dict(TOY[A])}  # a second centre identical on every read slot
+    leak = {p: (TOY[A][p], 1.0) for p in P}
+    result = score(leak, twin, **STRICT)
+    assert result.consistent == 2 and result.outcome is Outcome.INSUFFICIENT
+
+
+def test_consistent_centres_rank_first() -> None:
+    leak = {p: (TOY[A][p], 1.0) for p in P}
+    result = score(leak, TOY, **STRICT)
+    assert [c for c, _ in result.ranked[: result.consistent]] == [A]
+
+
+def test_calibrated_defaults_are_used_when_not_overridden() -> None:
+    import importlib
+
+    score_module = importlib.import_module("examfp.decode.score")
+
+    leak = {p: (TOY[A][p], 1.0) for p in P}
+    result = score(leak, TOY)
+    assert result.tolerance == score_module.mismatch_tolerance(
+        10, score_module.MISREAD_RATE, score_module.FALSE_REJECTION_BUDGET
+    )
+    assert score_module.MIN_READ_SLOTS >= 1
+
+
+# --- end to end on the real codebook --------------------------------------------------------
+def test_colluded_leaks_never_identify_an_innocent(sample_paper: Paper, book) -> None:  # type: ignore[no-untyped-def]
+    import random
+
+    from examfp.attacks import collude, crop, retype, typos
+
+    rng = random.Random(2024)
+    for _ in range(60):
+        coalition = rng.sample(range(1000), rng.randint(2, 5))
+        hybrid = collude([book[c] for c in coalition], rng, strategy="minority")
+        text = _render(sample_paper, hybrid)
+        leak = typos(retype(crop(text, rng.randint(2, 8), rng)), 0.03, rng)
+        result = score(read_leak(leak, sample_paper), book)
+        if result.outcome is Outcome.IDENTIFIED:
+            assert result.ranked[0][0] in coalition, "an innocent centre was identified"

@@ -1,0 +1,140 @@
+{
+  "id": "sample-2026",
+  "title": "Sample Mathematics and Science Paper",
+  "questions": [
+    {
+      "id": "q1",
+      "template": "{{intro}} Rohan drives {{dist}} km in {{time}} hours.\n{{lead}} his average speed in {{unit}}. {{closing}}",
+      "answer": "60 km/h",
+      "marks": 3,
+      "slots": [
+        { "name": "intro", "variants": ["On the way to Nashik,", "On the Pune highway,"] },
+        { "name": "speed", "fills": ["dist", "time"],
+          "difficulty_band": { "operation": "divide", "operand_digits": [3, 1], "exclude_trivial": true },
+          "variants": [
+            { "values": ["180", "3"] }, { "values": ["240", "4"] }, { "values": ["300", "5"] },
+            { "values": ["360", "6"] }, { "values": ["420", "7"] }, { "values": ["480", "8"] },
+            { "values": ["540", "9"] }
+          ] },
+        { "name": "unit", "kind": "unit_form", "variants": ["km/h", "kilometres per hour", "kmph"] },
+        { "name": "lead", "variants": ["Calculate", "Work out"] },
+        { "name": "closing", "variants": ["Show your working.", "Show all your steps."] }
+      ]
+    },
+    {
+      "id": "q2",
+      "template": "{{lead}} the gas that plants absorb during photosynthesis.\nA) {{optA}}\nB) {{optB}}\nC) {{optC}}\nD) {{optD}}\nE) {{optE}}\n{{closing}}",
+      "answer": "Carbon dioxide",
+      "marks": 1,
+      "slots": [
+        { "name": "lead", "variants": ["State", "Identify"] },
+        { "name": "opts", "kind": "option_order",
+          "fills": ["optA", "optB", "optC", "optD", "optE"],
+          "options": ["Carbon dioxide", "Oxygen", "Nitrogen", "Hydrogen", "Water vapour"],
+          "correct": 0 },
+        { "name": "closing", "variants": ["Choose one option only.", "Tick the correct box."] }
+      ]
+    },
+    {
+      "id": "q3",
+      "template": "A rectangle has length {{w}} cm and breadth {{h}} cm.\n{{lead}} its area in {{unit}}. {{closing}}",
+      "answer": "1440 cm²",
+      "marks": 2,
+      "slots": [
+        { "name": "dims", "fills": ["w", "h"],
+          "difficulty_band": { "operation": "multiply", "operand_digits": [2, 2], "exclude_trivial": true },
+          "variants": [
+            { "values": ["16", "90"] }, { "values": ["18", "80"] }, { "values": ["20", "72"] },
+            { "values": ["24", "60"] }, { "values": ["30", "48"] }, { "values": ["32", "45"] },
+            { "values": ["36", "40"] }
+          ] },
+        { "name": "unit", "kind": "unit_form", "variants": ["cm²", "sq cm", "square centimetres"] },
+        { "name": "lead", "variants": ["Calculate", "Work out"] },
+        { "name": "closing", "variants": ["Show your working.", "Show all your steps."] }
+      ]
+    },
+    {
+      "id": "q4",
+      "template": "A school has {{whole}} students.\n{{lead}} {{pct}}% of them. {{closing}}",
+      "answer": "60 students",
+      "marks": 2,
+      "slots": [
+        { "name": "pctval", "fills": ["pct", "whole"],
+          "difficulty_band": { "operation": "percent", "operand_digits": [2, 3], "exclude_trivial": true },
+          "variants": [
+            { "values": ["15", "400"] }, { "values": ["16", "375"] }, { "values": ["20", "300"] },
+            { "values": ["24", "250"] }, { "values": ["25", "240"] }, { "values": ["30", "200"] },
+            { "values": ["40", "150"] }
+          ] },
+        { "name": "lead", "variants": ["Calculate", "Work out"] },
+        { "name": "closing", "variants": ["Show your working.", "Show all your steps."] }
+      ]
+    },
+    {
+      "id": "q5",
+      "template": "{{lead}} the value that is equal to one half.\nA) {{optA}}\nB) {{optB}}\nC) {{optC}}\nD) {{optD}}\nE) {{optE}}\n{{closing}}",
+      "answer": "0.5",
+      "marks": 1,
+      "slots": [
+        { "name": "lead", "variants": ["State", "Identify"] },
+        { "name": "opts", "kind": "option_order",
+          "fills": ["optA", "optB", "optC", "optD", "optE"],
+          "options": ["0.5", "0.2", "0.25", "0.75", "0.05"],
+          "correct": 0 },
+        { "name": "closing", "variants": ["Choose one option only.", "Tick the correct box."] }
+      ]
+    },
+    {
+      "id": "q6",
+      "template": "{{intro}} a metal block has mass {{mass}} g and volume {{vol}} cm³.\n{{lead}} its density in {{unit}}. {{closing}}",
+      "answer": "8 g/cm³",
+      "marks": 3,
+      "slots": [
+        { "name": "intro", "variants": ["In a Bengaluru lab,", "In the school lab,"] },
+        { "name": "density", "fills": ["mass", "vol"],
+          "difficulty_band": { "operation": "divide", "operand_digits": [2, 1], "exclude_trivial": true },
+          "variants": [
+            { "values": ["24", "3"] }, { "values": ["32", "4"] }, { "values": ["40", "5"] },
+            { "values": ["48", "6"] }, { "values": ["56", "7"] }, { "values": ["64", "8"] },
+            { "values": ["72", "9"] }
+          ] },
+        { "name": "unit", "kind": "unit_form", "variants": ["g/cm³", "grams per cubic centimetre", "g per cm³"] },
+        { "name": "lead", "variants": ["Calculate", "Work out"] },
+        { "name": "closing", "variants": ["Show your working.", "Show all your steps."] }
+      ]
+    },
+    {
+      "id": "q7",
+      "template": "{{intro}} Anaya buys notebooks at {{cur}}{{price}} each.\n{{lead}} the cost of {{qty}} notebooks. {{closing}}",
+      "answer": "₹1440",
+      "marks": 2,
+      "slots": [
+        { "name": "intro", "variants": ["At a Delhi bookshop,", "In a Chennai store,"] },
+        { "name": "cur", "kind": "unit_form", "variants": ["₹", "Rs."] },
+        { "name": "cost", "fills": ["price", "qty"],
+          "difficulty_band": { "operation": "multiply", "operand_digits": [2, 2], "exclude_trivial": true },
+          "variants": [
+            { "values": ["90", "16"] }, { "values": ["80", "18"] }, { "values": ["72", "20"] },
+            { "values": ["60", "24"] }, { "values": ["48", "30"] }, { "values": ["45", "32"] },
+            { "values": ["40", "36"] }
+          ] },
+        { "name": "lead", "variants": ["Calculate", "Work out"] },
+        { "name": "closing", "variants": ["Show your working.", "Show all your steps."] }
+      ]
+    },
+    {
+      "id": "q8",
+      "template": "{{lead}} which of these numbers is a prime number.\nA) {{optA}}\nB) {{optB}}\nC) {{optC}}\nD) {{optD}}\nE) {{optE}}\n{{closing}}",
+      "answer": "17",
+      "marks": 1,
+      "slots": [
+        { "name": "lead", "variants": ["State", "Identify"] },
+        { "name": "opts", "kind": "option_order",
+          "fills": ["optA", "optB", "optC", "optD", "optE"],
+          "options": ["17", "21", "27", "33", "39"],
+          "correct": 0 },
+        { "name": "closing", "variants": ["Choose one option only.", "Tick the correct box."] }
+      ]
+    }
+  ]
+}

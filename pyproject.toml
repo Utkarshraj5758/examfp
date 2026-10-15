@@ -1,0 +1,82 @@
+[project]
+name = "examfp"
+version = "0.1.0"
+description = "TRACE: paraphrase-robust content fingerprinting of examination question papers."
+requires-python = ">=3.11"
+# Direct dependencies are pinned exactly (==). The full set, all extras together,
+# was resolved for Python 3.11 and 3.12 on Windows with wheels only; numpy stays
+# on 2.4.x because 2.5 dropped Python 3.11. Bump pins deliberately, never loosen.
+dependencies = [
+    "pydantic==2.13.4",
+    "typst==0.15.0",
+    "typer==0.27.1",
+    "rapidfuzz==3.14.5",
+    "numpy==2.4.6",
+]
+
+[project.optional-dependencies]
+# The core library is the base install above. `core` is declared so every
+# install profile reads the same way: .[core] / .[ml] / .[service] / .[dev].
+core = []
+# Training code (ml/). Heavy: never pulled in by dev or service.
+ml = [
+    "torch==2.14.1",
+    "transformers==5.19.0",
+    "pyyaml==6.0.3",
+]
+# HTTP service (service/). Worker framework, JWT and crypto libraries are
+# chosen in their own milestones -- see NOTES.md, "Deferred dependency choices".
+service = [
+    "fastapi==0.143.2",
+    "uvicorn==0.54.0",
+    "sqlalchemy==2.1.4",
+    "alembic==1.20.0",
+    "psycopg[binary]==3.3.6",
+    "redis==8.1.0",
+    "prometheus-client==0.26.0",
+]
+# Test and lint toolchain: what CI installs. Combine with ml/service when
+# working on those packages, e.g. pip install -e ".[dev,service]".
+dev = [
+    "pytest==9.1.1",
+    "pypdf==6.19.0",
+    "hypothesis==6.168.0",
+    "ruff==0.16.8",
+    "mypy==2.3.1",
+    "pre-commit==4.7.0",
+]
+
+[build-system]
+requires = ["setuptools==84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+# Discover subpackages too: an explicit `packages = ["examfp"]` list silently
+# dropped examfp.codebook and examfp.decode from built wheels. eval/, api/ and
+# tests/ are repo tooling and are deliberately not installed.
+include = ["examfp", "examfp.*", "ml", "ml.*", "service", "service.*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# The dashboard embeds an HTML/CSS template; long template lines are fine.
+"api/dashboard.py" = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+
+# numpy's bundled stubs are not our code and some releases use syntax newer
+# than the 3.11 target; do not parse them.
+[[tool.mypy.overrides]]
+module = ["numpy.*"]
+follow_imports = "skip"
+follow_imports_for_stubs = true

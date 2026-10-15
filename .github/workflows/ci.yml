@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-test:
+    name: lint + test (Windows, Python 3.11)
+    # The project targets Windows + PowerShell (CLAUDE.md); CI runs the same
+    # tasks.ps1 entrypoints developers run, under Windows PowerShell 5.1.
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      PYTHONIOENCODING: utf-8
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install (pinned dev profile)
+        shell: powershell
+        run: pip install -e ".[dev]"
+
+      - name: Lint (ruff + mypy --strict examfp service ml)
+        shell: powershell
+        run: .\tasks.ps1 lint
+
+      - name: Test
+        shell: powershell
+        run: .\tasks.ps1 test

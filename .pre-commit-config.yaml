@@ -1,0 +1,24 @@
+# Same checks as `.\tasks.ps1 lint`, run from the active environment
+# (pip install -e ".[dev]"). Local hooks keep the versions identical to the pins
+# in pyproject.toml, and let mypy see the real dependencies -- an isolated hook
+# environment would lack pydantic/typer/etc. and report false errors.
+#
+#   pre-commit install            # once per clone
+#   pre-commit run --all-files    # check everything now
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff check
+        entry: python -m ruff check --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      - id: mypy
+        name: mypy --strict examfp service ml
+        entry: python -m mypy --strict examfp service ml
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: false
+        require_serial: true

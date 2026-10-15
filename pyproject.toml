@@ -12,6 +12,7 @@ dependencies = [
     "typer==0.27.1",
     "rapidfuzz==3.14.5",
     "numpy==2.4.6",
+    "cryptography==50.0.2",  # AES-GCM envelope encryption (codebook/crypto.py)
 ]
 
 [project.optional-dependencies]

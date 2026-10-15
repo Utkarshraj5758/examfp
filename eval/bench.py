@@ -8,7 +8,19 @@
 
 Both sweeps run for the current Reed-Solomon codebook (``rs``) and the
 superseded mixed-radix one (``mixed-radix``, :mod:`eval.baselines`), so the
-before/after sits in one table. All randomness flows from seeded generators.
+before/after sits in one table.
+
+3. **Calibration (M5.5).** The reader's misread rate on single-source leaks
+   (95% upper bound), and a sweep of the consistency gate *without* a read floor
+   over every crop size, single-source and colluded: the floor must sit above the
+   most slots at which an innocent centre was ever named.
+4. **Collusion (M5.5).** 2-5 centres, minority strategy, outcome distribution
+   per coalition size for the old margin-only rule (``before``) and the gated
+   rule with the deployed constants (``after``).
+
+All randomness flows from seeded generators. The k-sweep and region
+``false-id%`` columns cover single-source leaks only; colluded leaks are
+reported separately in the collusion table.
 
 ``python -m eval.bench`` (or ``.\\tasks.ps1 bench``) prints both tables and writes
 ``eval/out/results.csv`` and ``eval/out/results_by_region.csv``. No plots.
@@ -23,17 +35,27 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import astuple, dataclass, fields
 from pathlib import Path
 
-from eval.baselines import mixed_radix_assign
-from examfp.attacks import crop, retype, typos
+from eval.baselines import mixed_radix_assign, score_ungated
+from examfp.attacks import collude, crop, retype, typos
 from examfp.cli import render_text
 from examfp.codebook.assign import assign
+from examfp.decode.calibrate import mismatch_tolerance, misread_upper_bound
 from examfp.decode.read import read_leak
-from examfp.decode.score import Outcome, score
+from examfp.decode.score import (
+    FALSE_REJECTION_BUDGET,
+    MIN_READ_SLOTS,
+    MISREAD_RATE,
+    Outcome,
+    ScoreResult,
+    score,
+)
 from examfp.models import Paper
 
 _SAMPLE = Path(__file__).resolve().parents[1] / "data" / "papers" / "sample.json"
 _OUT = Path(__file__).resolve().parent / "out" / "results.csv"
 _OUT_REGION = Path(__file__).resolve().parent / "out" / "results_by_region.csv"
+_OUT_FLOOR = Path(__file__).resolve().parent / "out" / "results_floor.csv"
+_OUT_COLLUSION = Path(__file__).resolve().parent / "out" / "results_collusion.csv"
 _TYPO_RATE = 0.03
 _QUESTION = re.compile(r"^\s*(\d+)\s*[.)]")
 
@@ -204,7 +226,10 @@ def format_region_table(rows: Sequence[RegionRow]) -> str:
     return "\n".join(lines)
 
 
-def write_csv(rows: Sequence[BenchRow] | Sequence[RegionRow], path: Path) -> None:
+def write_csv(
+    rows: Sequence[BenchRow] | Sequence[RegionRow] | Sequence[FloorRow] | Sequence[CollusionRow],
+    path: Path,
+) -> None:
     """Write dataclass rows to CSV, header taken from the row type."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as fh:
@@ -213,6 +238,179 @@ def write_csv(rows: Sequence[BenchRow] | Sequence[RegionRow], path: Path) -> Non
             writer.writerow([f.name for f in fields(rows[0])])
         for row in rows:
             writer.writerow(astuple(row))
+
+
+# --- M5.5: calibration -------------------------------------------------------------------------
+@dataclass(frozen=True)
+class MisreadReport:
+    reads: int
+    misreads: int
+    upper95: float
+
+    @property
+    def point(self) -> float:
+        return self.misreads / self.reads if self.reads else 0.0
+
+
+def _leak(
+    paper: Paper, codebook: Codebook, sources: list[int], k: int, rng: random.Random
+) -> str:
+    """Single-source (one id) or colluded (2+ ids, minority) leak: crop, retype, typos."""
+    if len(sources) == 1:
+        symbols = dict(codebook[sources[0]])
+    else:
+        symbols = collude([codebook[c] for c in sources], rng, strategy="minority")
+    return typos(retype(crop(render_text(paper, symbols), k, rng)), _TYPO_RATE, rng)
+
+
+def measure_misreads(
+    paper: Paper, codebook: Codebook, n_trials: int = 400, seed: int = 0
+) -> MisreadReport:
+    """Count read slots that disagree with the true source (single-source leaks)."""
+    rng = random.Random(seed)
+    centres = list(codebook)
+    reads = misreads = 0
+    for i in range(n_trials):
+        source = rng.choice(centres)
+        observed = read_leak(_leak(paper, codebook, [source], 1 + i % 8, rng), paper)
+        reads += len(observed)
+        misreads += sum(codebook[source][p] != s for p, (s, _c) in observed.items())
+    upper = misread_upper_bound(misreads, reads) if reads else 1.0
+    return MisreadReport(reads, misreads, upper)
+
+
+@dataclass(frozen=True)
+class FloorRow:
+    reads: int
+    trials: int
+    correct: int
+    false_identified: int
+    suspected: int
+    suspected_with_innocent: int
+    refused: int
+
+
+def run_floor_sweep(
+    paper: Paper,
+    codebook: Codebook,
+    sizes: Iterable[int] = (1, 2, 3, 4, 5),
+    k_values: Iterable[int] = range(1, 9),
+    n_trials: int = 100,
+    seed: int = 0,
+    misread_rate: float = MISREAD_RATE,
+) -> list[FloorRow]:
+    """Gated rule with NO read floor, tallied by slots read (the floor's evidence)."""
+    rng = random.Random(seed)
+    centres = list(codebook)
+    tally: dict[int, list[int]] = {}
+    for size in sizes:
+        for k in k_values:
+            for _ in range(n_trials):
+                sources = rng.sample(centres, size)
+                observed = read_leak(_leak(paper, codebook, sources, k, rng), paper)
+                result = score(observed, codebook, misread_rate=misread_rate, min_read_slots=0)
+                cell = tally.setdefault(result.positions_used, [0, 0, 0, 0, 0, 0])
+                cell[0] += 1
+                if result.outcome is Outcome.IDENTIFIED:
+                    cell[1 if result.ranked[0][0] in sources else 2] += 1
+                elif result.outcome is Outcome.COLLUSION_SUSPECTED:
+                    cell[3] += 1
+                    cell[4] += any(c not in sources for c in result.explaining_set)
+                else:
+                    cell[5] += 1
+    return [FloorRow(r, *cell) for r, cell in sorted(tally.items())]
+
+
+def suggest_floor(rows: Sequence[FloorRow]) -> int:
+    """One more than the most slots read at which an innocent centre was identified."""
+    worst = [r.reads for r in rows if r.false_identified]
+    return max(worst) + 1 if worst else 1
+
+
+@dataclass(frozen=True)
+class CollusionRow:
+    rule: str
+    coalition: int
+    trials: int
+    identified_colluder: int
+    identified_innocent: int
+    suspected_exact: int
+    suspected_partial: int
+    suspected_with_innocent: int
+    insufficient: int
+    no_match: int
+    mean_reads: float
+
+
+def _classify(result: ScoreResult, sources: list[int]) -> str:
+    if result.outcome is Outcome.IDENTIFIED:
+        return "identified_colluder" if result.ranked[0][0] in sources else "identified_innocent"
+    if result.outcome is Outcome.COLLUSION_SUSPECTED:
+        named = set(result.explaining_set)
+        if not named <= set(sources):
+            return "suspected_with_innocent"
+        return "suspected_exact" if named == set(sources) else "suspected_partial"
+    return "insufficient" if result.outcome is Outcome.INSUFFICIENT else "no_match"
+
+
+def run_collusion_bench(
+    paper: Paper,
+    codebook: Codebook,
+    sizes: Iterable[int] = (1, 2, 3, 4, 5),
+    n_trials: int = 200,
+    seed: int = 0,
+    k_questions: int = 6,
+) -> list[CollusionRow]:
+    """The same leaks through the old margin-only rule and the gated rule."""
+    rng = random.Random(seed)
+    centres = list(codebook)
+    rows: list[CollusionRow] = []
+    rules: tuple[tuple[str, Callable[..., ScoreResult]], ...] = (
+        ("before", score_ungated),
+        ("after", score),
+    )
+    for size in sizes:
+        counts: dict[str, dict[str, int]] = {"before": {}, "after": {}}
+        reads = 0
+        for _ in range(n_trials):
+            sources = rng.sample(centres, size)
+            observed = read_leak(_leak(paper, codebook, sources, k_questions, rng), paper)
+            reads += len(observed)
+            for rule, decide in rules:
+                kind = _classify(decide(observed, codebook), sources)
+                counts[rule][kind] = counts[rule].get(kind, 0) + 1
+        for rule, _decide in rules:
+            c = counts[rule]
+            rows.append(CollusionRow(
+                rule, size, n_trials, c.get("identified_colluder", 0),
+                c.get("identified_innocent", 0), c.get("suspected_exact", 0),
+                c.get("suspected_partial", 0), c.get("suspected_with_innocent", 0),
+                c.get("insufficient", 0), c.get("no_match", 0), reads / n_trials,
+            ))
+    return rows
+
+
+def format_floor_table(rows: Sequence[FloorRow]) -> str:
+    header = (f"{'reads':>5} {'trials':>6} {'correct':>7} {'FALSE-ID':>8} "
+              f"{'suspected':>9} {'susp+innocent':>13} {'refused':>7}")
+    lines = [header, "-" * len(header)]
+    for r in rows:
+        lines.append(f"{r.reads:>5} {r.trials:>6} {r.correct:>7} {r.false_identified:>8} "
+                     f"{r.suspected:>9} {r.suspected_with_innocent:>13} {r.refused:>7}")
+    return "\n".join(lines)
+
+
+def format_collusion_table(rows: Sequence[CollusionRow]) -> str:
+    header = (f"{'rule':<6} {'c':>2} {'trials':>6} {'id-colluder':>11} {'ID-INNOCENT':>11} "
+              f"{'susp=coal':>9} {'susp<coal':>9} {'susp+inn':>8} {'insuff':>6} {'nomatch':>7}")
+    lines = [header, "-" * len(header)]
+    for r in rows:
+        lines.append(
+            f"{r.rule:<6} {r.coalition:>2} {r.trials:>6} {r.identified_colluder:>11} "
+            f"{r.identified_innocent:>11} {r.suspected_exact:>9} {r.suspected_partial:>9} "
+            f"{r.suspected_with_innocent:>8} {r.insufficient:>6} {r.no_match:>7}"
+        )
+    return "\n".join(lines)
 
 
 def main() -> None:
@@ -228,7 +426,26 @@ def main() -> None:
     print(format_region_table(region_rows))
     write_csv(k_rows, _OUT)
     write_csv(region_rows, _OUT_REGION)
-    print(f"\nwrote {_OUT}\nwrote {_OUT_REGION}")
+
+    book = assign(paper, 1000, 0)
+    misreads = measure_misreads(paper, book, n_trials=6000, seed=0)
+    print("\n=== calibration: single-source leaks, crops 1-8, retype, 3% typos ===")
+    print(f"misreads {misreads.misreads} / {misreads.reads} read slots; point "
+          f"{misreads.point:.2e}, 95% upper bound {misreads.upper95:.2e}")
+    print(f"deployed MISREAD_RATE = {MISREAD_RATE:.2e} -> tolerance at 31 reads: "
+          f"{mismatch_tolerance(31, MISREAD_RATE, FALSE_REJECTION_BUDGET)}")
+    floor_rows = run_floor_sweep(paper, book, n_trials=100, seed=1,
+                                 misread_rate=misreads.upper95)
+    print("\n=== read floor: gated rule with NO floor, by slots read (100 trials per cell) ===")
+    print(format_floor_table(floor_rows))
+    print(f"suggested MIN_READ_SLOTS = {suggest_floor(floor_rows)}; deployed = {MIN_READ_SLOTS}")
+    collusion_rows = run_collusion_bench(paper, book, n_trials=200, seed=2)
+    print("\n=== collusion: minority strategy, 6 questions, retype, 3% typos (200 per row) ===")
+    print(format_collusion_table(collusion_rows))
+    write_csv(floor_rows, _OUT_FLOOR)
+    write_csv(collusion_rows, _OUT_COLLUSION)
+    for path in (_OUT, _OUT_REGION, _OUT_FLOOR, _OUT_COLLUSION):
+        print(f"wrote {path}")
 
 
 if __name__ == "__main__":

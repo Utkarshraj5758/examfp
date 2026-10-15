@@ -21,14 +21,13 @@ Measured baseline to beat: **91% identification at 6 leaked questions, 100% at
 
 ## Phase 1 — Make it correct (Oct 2026)
 
-### [~] M4 — Repo hardening and task runner
+### [x] M4 — Repo hardening and task runner
 
 Bring the existing code up to industry hygiene before adding anything.
 
-**Status (2026-10-15):** built. Local acceptance passed on Python 3.11 and 3.12
+**Status:** done. Local acceptance passed on Python 3.11 and 3.12
 (clean clone, `pip install -e ".[dev]"`, `.\tasks.ps1 test` 110 green, lint
-clean). **Remaining:** create the git repository and GitHub remote, push a
-branch, and see CI green — then tick this box. See NOTES.md, M4.
+clean); CI green on the pushed commit `7193e8c` (2026-10-15).
 
 **Build:** `pyproject.toml` with pinned deps and extras (`core`, `ml`,
 `service`, `dev`); `tasks.ps1`; `.gitignore` (out/, *.pdf, .venv, eval/out,

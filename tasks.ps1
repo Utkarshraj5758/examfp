@@ -2,7 +2,7 @@
     TRACE task runner (PowerShell stand-in for make).
 
     Usage:  .\tasks.ps1 <task> [extra args]
-    Tasks:  test lint fmt demo bench train up down logs smoke clean help
+    Tasks:  test lint fmt demo dashboard bench train up down logs smoke clean help
 
     If Windows reports "running scripts is disabled on this system", allow
     local scripts once for your account:
@@ -13,13 +13,11 @@
     Keep this file ASCII-only: Windows PowerShell 5.1 reads BOM-less files as ANSI.
 #>
 
-param(
-    [Parameter(Position = 0)]
-    [string]$Task = "help",
-
-    [Parameter(Position = 1, ValueFromRemainingArguments = $true)]
-    [string[]]$Rest
-)
+# Plain param block on purpose: [Parameter()] attributes would make this an
+# advanced script with common parameters (-OutVariable, -OutBuffer, ...), and a
+# forwarded argument such as --out would then fail as ambiguous.
+param([string]$Task = "help")
+$Rest = $args
 
 $ErrorActionPreference = "Stop"
 $env:PYTHONIOENCODING = "utf-8"   # rupee sign and superscripts print on Windows consoles
@@ -71,6 +69,12 @@ switch ($Task.ToLower()) {
     "demo" {
         Use-Venv
         Invoke-Step "demo" { python -m examfp.cli demo @Rest }
+    }
+
+    "dashboard" {
+        Use-Venv
+        Invoke-Step "dashboard" { python -m api.dashboard @Rest }
+        Write-Host "`nOpen out\dashboard.html in a browser" -ForegroundColor Green
     }
 
     "bench" {
@@ -127,6 +131,7 @@ TRACE task runner
   .\tasks.ps1 lint       ruff check + mypy --strict
   .\tasks.ps1 fmt        ruff format + autofix
   .\tasks.ps1 demo       end-to-end CLI demo
+  .\tasks.ps1 dashboard  static HTML dashboard -> out\dashboard.html
   .\tasks.ps1 bench      evaluation sweeps -> eval\out\
   .\tasks.ps1 train      fine-tune the neural decoder
   .\tasks.ps1 up         docker compose up (api, worker, db, web)

@@ -80,7 +80,7 @@ switch ($Task.ToLower()) {
     "bench" {
         Use-Venv
         Invoke-Step "benchmark" { python -m eval.bench @Rest }
-        Write-Host "`nResults: eval\out\results.csv" -ForegroundColor Green
+        Write-Host "`nResults: eval\out\results.csv, eval\out\results_by_region.csv" -ForegroundColor Green
     }
 
     "train" {

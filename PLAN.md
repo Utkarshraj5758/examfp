@@ -51,10 +51,17 @@ pushed branch; `pip install -e ".[dev]"` works from scratch.
 
 ---
 
-### [ ] M5 — Reed–Solomon codebook (replaces crude assign)
+### [x] M5 — Reed–Solomon codebook (replaces crude assign)
 
 Removes the known weakness: identification currently depends on *which*
 questions leak.
+
+**Status:** done (2026-10-15, branch `m5-reed-solomon`). Erasure property tests
+and three published vectors pass; no position is constant over 1,000 centres;
+the end-to-end trace still names the right centre; early, middle and late leaks
+now perform alike (early/middle went from 0% to 100% at 3 questions). Also
+delivered: `--encrypt` (AES-GCM envelope), the `api/` dependency inversion, and
+the M11 placeholder fix. Numbers in NOTES.md, M5.
 
 **Build:** `codebook/rs.py` — GF(256) arithmetic with log/antilog tables,
 systematic RS encoding, erasure decoding via Forney. No dependency; implement

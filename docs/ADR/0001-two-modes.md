@@ -49,14 +49,17 @@ Rules:
 5. The empirical Tardos constant measured in M11 is labelled "measured, not
    proved". The literal constant 100 remains the only basis of a provable claim.
 
-## Current state (M4)
+## Current state (M5)
 
-Reed–Solomon is not built yet. Until M5 the practical path runs on the crude
-mixed-radix `assign`, which is position-dependent: 20 of the sample's 31
-positions are constant across 1,000 centres ([NOTES F3](../../NOTES.md)). The
-baseline in PLAN.md — 91% at 6 leaked questions, 100% at 7+, 0% false
-identification — was measured on that interim codebook. It is a
-practical-mode, empirical result.
+Practical mode now runs on Reed–Solomon over GF(256) (M5), with slots packed
+into symbols as recorded in [ADR 0002](0002-rs-slot-packing.md). On the sample
+paper it identifies 100% of leaks of 4 or more questions, and of 3 questions
+from any third of the paper, with 0% false identification (NOTES.md, M5). These
+are measured, practical-mode results.
+
+The PLAN.md baseline (91% at 6 leaked questions) was measured on the interim
+mixed-radix codebook, which is kept only as a benchmark baseline in
+`eval/baselines.py`.
 
 ## Consequences
 

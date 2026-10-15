@@ -72,10 +72,12 @@ Crop → retype → 3% typos, 200 trials per `k` (`eval/out/results.csv`, seed 0
 | k leaked | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|
 | correct % | 0.0 | 9.5 | 27.5 | 53.5 | 71.0 | 91.0 | 100 | 100 |
-| false-id % | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| false-id % (single-source) | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 
 Over seeds 0–99 the 6-question rate is 88/100; the misses are crops that drop
 the late questions, and they come back `INSUFFICIENT`, never a wrong centre.
+*Correction (M5.5): every leak here came from one centre. Under collusion the
+same margin-only rule did name innocent centres; see M5.5.*
 Recovery averages ~3.8 positions per leaked question.
 
 **Fix (M5):** Reed–Solomon over GF(256) is MDS — any `k` symbols determine the
@@ -189,8 +191,11 @@ Leaks drawn only from one third of the paper — correct identification:
 | middle (q4–q6) | 1 / 2 / 3 | 0 / 0 / 0 | 2.0 / 90.0 / 100 |
 | late (q7–q8) | 1 / 2 | 0 / 100 | 1.0 / 99.0 |
 
-False identification is **0% in every cell, for both codebooks**. Every miss is
-`INSUFFICIENT`. The mixed-radix k-sweep reproduces the Phase 0 numbers exactly,
+False identification is **0% in every cell, for both codebooks — for
+single-source leaks**, the only kind this sweep contained. Every miss is
+`INSUFFICIENT`. *Correction (M5.5): colluded leaks were not tested here, and the
+margin-only rule named innocents for them; see M5.5.* The mixed-radix k-sweep
+reproduces the Phase 0 numbers exactly,
 confirming the baseline was preserved verbatim. Raw data: `eval/out/results.csv`,
 `eval/out/results_by_region.csv` (`.\tasks.ps1 bench`, ~30 s).
 
@@ -200,7 +205,9 @@ confirming the baseline was preserved verbatim. Raw data: `eval/out/results.csv`
 - **One question is still not enough, by arithmetic, not by code.** A question
   offers at most a few hundred slot combinations (q1: 168, q2: 476) for 1,000
   centres, so several centres share any one of them. Two questions reach about
-  90%; three, 100%.
+  90%; three, 100%. *Superseded by the M5.5 read floor (11 slots): two questions
+  carry at most 10 slots and no longer name a centre; three reach 82%; four or
+  more, 100%.*
 - The trace still scores slots against every centre (`score.py`) rather than
   decoding RS directly. RS supplies the spread and distance; direct erasure
   decoding (`complete_symbols`) needs `k` *intact* groups, and groups span
@@ -243,3 +250,66 @@ confirming the baseline was preserved verbatim. Raw data: `eval/out/results.csv`
   encrypt or keep them in the service in M12.
 - **Plaintext by default.** `--encrypt` is opt-in; flip the default once a
   vault is part of normal setup (M12).
+
+---
+
+## M5.5 — consistency gate: a live safety bug (2026-10-16)
+
+**The bug.** The margin-only rule (M3–M5) named innocent centres under
+collusion, and the "0% false identification" reported until now covered
+single-source leaks only. RS decoding was never in the trace path, so nothing
+"fell back": the slot score was the only decision, and it measures a different
+distance from the one RS protects ([ADR 0003](docs/ADR/0003-decision-rule-under-collusion.md)).
+Over 1,000 centres the minimum symbol distance is 6 but the minimum slot
+distance is 8, and colluders can mix slots inside a symbol.
+
+### Before / after (minority-strategy collusion, 6 questions, retype, 3% typos, 200 leaks per row)
+
+| centres in leak | innocent identified, before | innocent identified, after | after: exact-coalition hypothesis | after: hypothesis incl. a non-colluder | after: refused |
+|---|--:|--:|--:|--:|--:|
+| 1 (single source) | 0 | 0 — all 200 identified | – | – | 0 |
+| 2 | 11 (5.5%) | **0** | 98 | 0 | 102 |
+| 3 | 94 (47%) | **0** | 0 | 8 | 192 |
+| 4 | 110 (55%) | **0** | 0 | 1 | 199 |
+| 5 | 100 (50%) | **0** | 0 | 2 | 198 |
+
+Before the change, false margins reached 12.0 (random-mixing probe: 5–6% of
+2-centre and 21–38% of 3–5-centre leaks named an innocent). Raw data:
+`eval/out/results_collusion.csv`.
+
+### Calibration (procedure in ADR 0003; rerun on every reader change)
+
+- **Misread rate:** 0 misreads in 104,026 read slots, so the 95% upper bound is
+  2.88e-5 and the tolerance is 0 at budget 1e-3. With only 6,969 reads the bound
+  was 4.3e-4, giving tolerance 1 and a floor of 18. More evidence earned the
+  tighter value.
+- **Read floor:** with the gate and no floor, innocents were identified at up to
+  10 slots read (seeds 1 and 7) and never from 11 up: 0 in 5,804 leaks, 95% upper
+  bound 0.052%. `MIN_READ_SLOTS = 11`. Raw data: `eval/out/results_floor.csv`.
+
+### Costs and limits (honest accounting)
+
+- **Thin leaks no longer name a centre.** Single-source identification: 2
+  questions 91% → 0% (they carry at most 10 slots), 3 questions 99.5% → 82%, 4+
+  still 100%. The late third (2 questions) can no longer identify on its own.
+- **The collusion hypothesis is trustworthy only for pairs.** For 2 colluders it
+  named the exact pair 98 times and never an outsider. For 3–5 colluders it
+  appeared 11 times in 600 and **every one included a non-colluder**. Across all
+  crop sizes, hypotheses that included an innocent were common (e.g. 22 of 105
+  at 31 reads). The output wording says the set may include uninvolved centres.
+- **Measured, not proved.** Sample paper, 1,000 centres, one reader. The only
+  proved collusion bound remains the provable mode (Tardos).
+- The existing 12-line-leak tests pass at exactly 11 slots read, right on the
+  floor.
+
+### Open items
+
+- **Floor in bits instead of slots.** Slots carry unequal information (1 bit for
+  a wording toggle, 6.9 for option order). A bits floor might recover some 2–3
+  question leaks; measure before adopting it.
+- **Hypotheses for 3+ colluders.** Consider restricting `COLLUSION_SUSPECTED` to
+  sets of 2, or reporting only centres common to every minimal cover; decide on
+  data.
+- **Contract.** CLAUDE.md promises "a calibrated bound on the probability of
+  naming an innocent centre". Practical mode has measured rates, not a bound;
+  the wording should say so (left for the owner to change).

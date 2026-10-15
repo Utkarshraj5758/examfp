@@ -15,7 +15,9 @@ acceptance test passes, `.\tasks.ps1 lint` is clean, and PLAN.md is ticked.
 - [x] **M3** Crude mixed-radix `assign`, fuzzy decoder, attacks, CLI, benchmark
 
 Measured baseline to beat: **91% identification at 6 leaked questions, 100% at
-7+, 0% false identification across 1,600 trials, 37 ms to score 1,000 centres.**
+7+, 0% false identification across 1,600 single-source trials, 37 ms to score
+1,000 centres.** *Correction (M5.5): those trials contained no collusion; under
+collusion the same rule named innocent centres in up to 55% of leaks. See M5.5.*
 
 ---
 
@@ -85,6 +87,26 @@ position, before vs after).
 > Hypothesis property tests: any k symbols with up to n−k erasures recover the
 > codeword. Then extend eval/bench.py to report accuracy by which questions
 > leaked (early/middle/late), and record the before/after comparison in NOTES.md.
+
+---
+
+### [x] M5.5 — Consistency gate (safety fix, inserted 2026-10-16)
+
+A live safety bug, kept separate from M6: under collusion the margin-only
+decision rule named innocent centres (5.5% of 2-centre leaks, 47–55% of 3–5).
+
+**Built:** consistency gate applied before the margin rule; calibrated mismatch
+tolerance (`MISREAD_RATE`, `FALSE_REJECTION_BUDGET`) with a documented
+recalibration procedure; measured read floor (`MIN_READ_SLOTS = 11`); fourth
+outcome `COLLUSION_SUSPECTED` (unique minimal covering set, worded as a
+hypothesis only); `collude()` attack (2–5 centres, minority strategy);
+calibration, floor and collusion rows in `eval/bench.py`; claims corrected;
+ADR 0003.
+
+**Status:** done (branch `m5.5-consistency-gate`, stacked on M5). 0 innocents
+identified for coalitions of 1–5 after the change; single-source 6-question
+leaks unchanged at 200/200. Cost: leaks of 1–2 questions no longer name a
+centre. Numbers in NOTES.md, M5.5.
 
 ---
 

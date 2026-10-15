@@ -1,6 +1,8 @@
-"""Crude leak decoder: read symbols from a leaked paper and score centres.
+"""Leak decoder: read symbols from a leaked paper, then decide.
 
-rapidfuzz only — no embeddings, no ML.
+``read_leak`` recovers slot symbols (rapidfuzz only, no ML; unreadable slots are
+absent, never guessed). ``score`` decides: consistency gate, read floor, margin,
+and a collusion hypothesis (ADR 0003).
 """
 
 from examfp.decode.read import read_leak

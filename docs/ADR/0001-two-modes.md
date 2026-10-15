@@ -52,10 +52,15 @@ Rules:
 ## Current state (M5)
 
 Practical mode now runs on Reed–Solomon over GF(256) (M5), with slots packed
-into symbols as recorded in [ADR 0002](0002-rs-slot-packing.md). On the sample
-paper it identifies 100% of leaks of 4 or more questions, and of 3 questions
-from any third of the paper, with 0% false identification (NOTES.md, M5). These
-are measured, practical-mode results.
+into symbols as recorded in [ADR 0002](0002-rs-slot-packing.md). The decision
+rule gained a consistency gate and a read floor in M5.5
+([ADR 0003](0003-decision-rule-under-collusion.md)), after collusion was found to
+make the margin-only rule name innocent centres.
+
+On the sample paper, single-source leaks of 4 or more questions are identified
+100% of the time, with 0% false identification. Colluded leaks (2–5 centres)
+are measured separately: after M5.5, 0 innocents identified in 800, though most
+are refused. These are measured, practical-mode results, not proved bounds.
 
 The PLAN.md baseline (91% at 6 leaked questions) was measured on the interim
 mixed-radix codebook, which is kept only as a benchmark baseline in
@@ -70,7 +75,8 @@ mixed-radix codebook, which is kept only as a benchmark baseline in
 - Practical mode has no collusion guarantee. A leak blended from several centres
   is unbounded territory, so M11's collusion sweep (2–5 centres) must report the
   false-identification rate for every cell, and the decoder must prefer
-  `INSUFFICIENT` over a wrong centre.
+  `INSUFFICIENT` over a wrong centre. *M5.5 confirmed the risk was real and added
+  the consistency gate (ADR 0003).*
 
 ## Alternatives considered
 

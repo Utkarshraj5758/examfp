@@ -33,7 +33,7 @@ from examfp.codebook.crypto import (
 )
 from examfp.codebook.tardos import TardosCode, bits_per_paper, simulate_pirate
 from examfp.decode.read import read_leak
-from examfp.decode.score import score
+from examfp.decode.score import MIN_READ_SLOTS, Outcome, ScoreResult, score
 from examfp.models import Paper
 
 app = typer.Typer(add_completion=False, help="examfp end-to-end trace.")
@@ -174,11 +174,43 @@ def trace(
     typer.echo(f"outcome: {result.outcome.value}   margin: {result.margin:.2f}")
     typer.echo(f"positions read: {read} / erased: {total - read} (of {total})")
     typer.echo("top 5 centres:")
-    for centre, sc in result.ranked[:5]:
-        typer.echo(f"  centre {centre}: {sc:.2f}")
+    for rank, (centre, sc) in enumerate(result.ranked[:5]):
+        tag = "  (consistent)" if rank < result.consistent else ""
+        typer.echo(f"  centre {centre}: {sc:.2f}{tag}")
     typer.echo("recovered positions:")
     for (qid, slot), (symbol, conf) in observations.items():
         typer.echo(f"  {qid}::{slot} = {symbol} (conf {conf:.2f})")
+    typer.echo(
+        f"consistent centres: {result.consistent} (tolerance {result.tolerance} "
+        f"mismatching slots; read floor {MIN_READ_SLOTS} slots)"
+    )
+    for line in verdict_lines(result):
+        typer.echo(line)
+
+
+def verdict_lines(result: ScoreResult) -> list[str]:
+    """Plain-language verdict. A collusion result is worded as a hypothesis only.
+
+    Guarantees: only ``IDENTIFIED`` names a single centre as the source; the
+    ``COLLUSION_SUSPECTED`` text always states it is a hypothesis and not an
+    accusation, and that the set may include centres that took no part.
+    """
+    if result.outcome is Outcome.IDENTIFIED:
+        return [
+            f"verdict: IDENTIFIED - centre {result.ranked[0][0]} is the only centre "
+            f"consistent with every slot read (margin {result.margin:.2f})."
+        ]
+    if result.outcome is Outcome.COLLUSION_SUSPECTED:
+        names = ", ".join(str(c) for c in result.explaining_set)
+        return [
+            "verdict: COLLUSION_SUSPECTED - no single centre is consistent with the slots read.",
+            f"  The slots are jointly consistent with centres {{{names}}}.",
+            "  This is a hypothesis for investigation, not an accusation of any centre;",
+            "  the set may include centres that took no part.",
+        ]
+    if result.outcome is Outcome.INSUFFICIENT:
+        return ["verdict: INSUFFICIENT - the evidence does not single out any centre."]
+    return ["verdict: NO_MATCH - nothing in the text matched the paper."]
 
 
 def _centre_symbols(paper: Paper, centre: int, n_centres: int) -> dict[tuple[str, str], int]:
@@ -252,7 +284,8 @@ def demo(
     for rank, (cid, sc) in enumerate(result.ranked[:5], start=1):
         marker = "  <- true" if cid == centre else ""
         typer.echo(f"  {rank}. centre {cid}: {sc:.2f}{marker}")
-    typer.echo(f"verdict: {result.outcome.value}   margin: {result.margin:.2f}")
+    for line in verdict_lines(result):
+        typer.echo(line)
     typer.echo(f"elapsed: {elapsed_ms:.0f} ms")
     typer.echo("QR-code baseline: no result (mark absent from retyped text)")
 

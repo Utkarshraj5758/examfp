@@ -194,3 +194,48 @@ def test_demo_refuses_a_stale_codebook(tmp_path: Path, monkeypatch) -> None:  # 
     assert result.exit_code != 0
     assert "current codebook scheme" in result.output
     assert "Traceback" not in result.output
+
+
+# --- M5.5: collusion hypothesis wording --------------------------------------------------------
+def test_trace_reports_collusion_as_a_hypothesis_never_an_accusation(tmp_path: Path) -> None:
+    import random
+
+    from examfp.attacks import collude
+    from examfp.cli import render_text
+    from examfp.codebook.assign import assign
+    from examfp.models import Paper
+
+    paper = Paper.model_validate_json(Path(SAMPLE).read_text(encoding="utf-8"))
+    out = tmp_path / "out"
+    runner.invoke(app, ["generate", SAMPLE, "--centres", "1000", "--out", str(out)])
+    book = assign(paper, 1000, seed=0)
+    leak = tmp_path / "leak.txt"
+    for seed in range(20):  # a 2-centre hybrid of the full paper usually yields a hypothesis
+        rng = random.Random(seed)
+        pair = rng.sample(range(1000), 2)
+        leak.write_text(render_text(paper, collude([book[c] for c in pair], rng)), encoding="utf-8")
+        result = runner.invoke(
+            app, ["trace", str(leak), "--codebook", str(out / "codebook.json"), "--paper", SAMPLE]
+        )
+        if "COLLUSION_SUSPECTED" in result.output:
+            break
+    else:
+        raise AssertionError("no seed produced a collusion hypothesis")
+    text = result.output.lower()
+    assert "hypothesis" in text and "not an accusation" in text
+    for word in ("accused", "guilty", "leaked by", "identified centre"):
+        assert word not in text
+    assert all(str(c) in result.output for c in pair)
+
+
+def test_trace_shows_gate_evidence(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    runner.invoke(app, ["generate", SAMPLE, "--centres", "100", "--out", str(out)])
+    leak = tmp_path / "leak.txt"
+    leak.write_text((out / "centre_7.txt").read_text(encoding="utf-8"), encoding="utf-8")
+    result = runner.invoke(
+        app, ["trace", str(leak), "--codebook", str(out / "codebook.json"), "--paper", SAMPLE]
+    )
+    assert result.exit_code == 0, result.output
+    assert "consistent centres: 1" in result.output
+    assert "read floor" in result.output

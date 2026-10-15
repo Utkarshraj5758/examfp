@@ -364,7 +364,7 @@ class CapacityReport(BaseModel):
             f"    at c={self.c}, eps={self.eps:g}, n={self.n_centres}: "
             f"m = {self.tardos_required:,.0f} positions",
             "[2] empirical Tardos: m = k*c^2*ln(n/eps)   k = <unset>  "
-            "(measured, not proved; pending M6)",
+            "(measured, not proved; pending M11)",
             "[3] feasibility (positions available="
             f"{self.positions} vs required):",
             f"        {'eps=1e-2':>12} {'eps=1e-3':>12} {'eps=1e-6':>12}",

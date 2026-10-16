@@ -1,7 +1,7 @@
-# ADR 0003 — Decision rule under collusion: consistency gate, read floor, hypothesis
+# ADR 0003 — Decision rule under collusion: consistency gate, read floor, multi-source signal
 
 - **Status:** Accepted
-- **Date:** 2026-10-16 (M5.5)
+- **Date:** 2026-10-16 (M5.5; step 4 revised the same day after review)
 - **Related:** [ADR 0001](0001-two-modes.md) (practical mode has no proved collusion
   bound), [ADR 0002](0002-rs-slot-packing.md) (slot packing)
 
@@ -44,11 +44,15 @@ margin threshold cannot fix that.
    read slots.
 3. **Margin among survivors.** `IDENTIFIED` only if one survivor leads every
    other centre by more than 0.5. Tied survivors give `INSUFFICIENT`.
-4. **Collusion hypothesis.** If no centre survives but exactly one smallest set
-   of at most 5 centres jointly explains every read slot (marking assumption,
-   same tolerance), the outcome is `COLLUSION_SUSPECTED` with that set. It is
-   worded as a hypothesis for investigation, never an accusation. An ambiguous
-   cover, or a search that exhausts its node budget, gives `INSUFFICIENT`.
+4. **Multi-source signal.** If the gate eliminates every centre and the floor
+   is cleared, the outcome is `MULTI_SOURCE_SUSPECTED`: no single centre is
+   consistent with the leak. It names nobody, with one exception: when exactly
+   one *pair* of centres jointly explains every read slot (marking assumption,
+   same tolerance), that pair is attached, worded as a hypothesis for
+   investigation and never an accusation. Sets of three or more are never named.
+   An ambiguous pair, or a search that exhausts its node budget, names nobody.
+   (The first M5.5 version, `COLLUSION_SUSPECTED`, named any unique minimal set
+   of up to 5 centres and refused when the cover was ambiguous.)
 
 **Calibrated parameters, never assumed:**
 
@@ -81,16 +85,24 @@ and paraphrase in M8–M10 will raise the misread rate):
   slots, below the floor: single-source identification at 2 questions fell from
   91% to 0%, and at 3 questions from 99.5% to 82%. Four or more questions stay
   at 100%.
-- **The collusion hypothesis is reliable only for pairs.** For 2 colluders it
-  matched the exact pair 98 times in 200 and never named an outsider. For 3–5
-  colluders it appeared 11 times in 600, and all 11 included a non-colluder: a
-  smallest explanation is not necessarily the true coalition. The wording says so.
+- **The multi-source signal is reliable; named pairs are not always.** The signal
+  fired on 800/800 leaks from 2–5 centres and 0/200 single-source leaks. For 2
+  colluders the named pair was the exact coalition 98 times and never an
+  outsider. The 11 hypotheses from 3–5-centre leaks that implicated an outsider
+  were all *pairs*, so restricting names to pairs does not remove them
+  (precision 98/109). A smallest explanation is not necessarily the true
+  coalition. Whether to name pairs at all is an open decision (NOTES.md, M5.5).
+- **The signal depends on calibration.** Misreads beyond the tolerance, or a
+  leak from outside the codebook, also empty the gate and would read as
+  multi-source. Recalibrating on every reader change (M7) is part of the rule.
 - **Empirical, not proved.** These are measured rates on the sample paper with
   1,000 centres. The only proved collusion bound remains the provable mode
   (Tardos, ADR 0001).
 - The floor counts slots, but slots carry unequal information (a 2-variant
-  wording slot vs a 119-variant option order). A floor in bits might recover some
-  2–3-question leaks; measure before adopting it.
+  wording slot vs a 119-variant option order). A bits floor was measured but not
+  adopted: its threshold moved between seeds (16.29 vs 18.59 bits), and at 18.59
+  it would lift 3-question leaks from about 80% to about 91% while leaving
+  2-question leaks at 0%. M11 revisits it with more trials.
 
 ## Alternatives considered
 
@@ -102,4 +114,7 @@ and paraphrase in M8–M10 will raise the misread rate):
   paraphrase introduce misreads. The tolerance is derived, so it moves with the
   measured rate.
 - **Report every minimal cover.** Rejected: it multiplies the centres named in
-  a hypothesis; a unique cover or nothing.
+  a hypothesis; a unique pair or nobody.
+- **Name unique minimal sets of 3–5 centres.** Rejected in review: in M5.5 no
+  such set was ever the unique minimal explanation, and naming larger sets
+  multiplies the chance of implicating an outsider.

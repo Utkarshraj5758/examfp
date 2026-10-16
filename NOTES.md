@@ -255,6 +255,10 @@ confirming the baseline was preserved verbatim. Raw data: `eval/out/results.csv`
 
 ## M5.5 — consistency gate: a live safety bug (2026-10-16)
 
+*Revised after review: the collusion outcome is `MULTI_SOURCE_SUSPECTED`
+(formerly `COLLUSION_SUSPECTED`), raised whenever the gate eliminates every
+centre above the floor, and it names at most a uniquely explaining pair.*
+
 **The bug.** The margin-only rule (M3–M5) named innocent centres under
 collusion, and the "0% false identification" reported until now covered
 single-source leaks only. RS decoding was never in the trace path, so nothing
@@ -265,13 +269,18 @@ distance is 8, and colluders can mix slots inside a symbol.
 
 ### Before / after (minority-strategy collusion, 6 questions, retype, 3% typos, 200 leaks per row)
 
-| centres in leak | innocent identified, before | innocent identified, after | after: exact-coalition hypothesis | after: hypothesis incl. a non-colluder | after: refused |
+| centres in leak | innocent identified, before | innocent identified, after | after: `MULTI_SOURCE_SUSPECTED` | named pair = exact coalition | named pair incl. an outsider |
 |---|--:|--:|--:|--:|--:|
-| 1 (single source) | 0 | 0 — all 200 identified | – | – | 0 |
-| 2 | 11 (5.5%) | **0** | 98 | 0 | 102 |
-| 3 | 94 (47%) | **0** | 0 | 8 | 192 |
-| 4 | 110 (55%) | **0** | 0 | 1 | 199 |
-| 5 | 100 (50%) | **0** | 0 | 2 | 198 |
+| 1 (single source) | 0 | 0 — all 200 identified | **0** | – | – |
+| 2 | 11 (5.5%) | **0** | **200** | 98 | 0 |
+| 3 | 94 (47%) | **0** | **200** | 0 | 8 |
+| 4 | 110 (55%) | **0** | **200** | 0 | 1 |
+| 5 | 100 (50%) | **0** | **200** | 0 | 2 |
+
+The multi-source signal fired on every colluded leak (800/800) and on no
+single-source leak (0/200). All 98 correct pairs were the unique minimal pair,
+so the pair-only rule keeps them. The 102 ambiguous 2-centre leaks, which the
+first M5.5 rule refused, are now flagged with nobody named.
 
 Before the change, false margins reached 12.0 (random-mixing probe: 5–6% of
 2-centre and 21–38% of 3–5-centre leaks named an innocent). Raw data:
@@ -292,11 +301,14 @@ Before the change, false margins reached 12.0 (random-mixing probe: 5–6% of
 - **Thin leaks no longer name a centre.** Single-source identification: 2
   questions 91% → 0% (they carry at most 10 slots), 3 questions 99.5% → 82%, 4+
   still 100%. The late third (2 questions) can no longer identify on its own.
-- **The collusion hypothesis is trustworthy only for pairs.** For 2 colluders it
-  named the exact pair 98 times and never an outsider. For 3–5 colluders it
-  appeared 11 times in 600 and **every one included a non-colluder**. Across all
-  crop sizes, hypotheses that included an innocent were common (e.g. 22 of 105
-  at 31 reads). The output wording says the set may include uninvolved centres.
+- **Named pairs are right for 2-centre leaks and wrong for larger ones.** For 2
+  colluders the named pair was the exact coalition 98 times and never included
+  an outsider. The 11 hypotheses from 3–5-centre leaks that implicated an
+  outsider were **all pairs**, not larger sets, so the pair-only rule still names
+  them: named-pair precision is 98/109 on this bench. Across crops 1–8 (floor
+  sweep), pairs with an outsider appear only at 11–23 slots read (75 among 2,315
+  multi-source results at >= 11 reads) and never at 24 or more. **Open decision
+  for the owner:** keep naming pairs, name nobody, or require more evidence.
 - **Measured, not proved.** Sample paper, 1,000 centres, one reader. The only
   proved collusion bound remains the provable mode (Tardos).
 - The existing 12-line-leak tests pass at exactly 11 slots read, right on the
@@ -304,12 +316,16 @@ Before the change, false margins reached 12.0 (random-mixing probe: 5–6% of
 
 ### Open items
 
-- **Floor in bits instead of slots.** Slots carry unequal information (1 bit for
-  a wording toggle, 6.9 for option order). A bits floor might recover some 2–3
-  question leaks; measure before adopting it.
-- **Hypotheses for 3+ colluders.** Consider restricting `COLLUSION_SUSPECTED` to
-  sets of 2, or reporting only centres common to every minimal cover; decide on
-  data.
-- **Contract.** CLAUDE.md promises "a calibrated bound on the probability of
-  naming an innocent centre". Practical mode has measured rates, not a bound;
-  the wording should say so (left for the owner to change).
+- **Bits-based floor — measured, not deployed (M11).** Slots carry unequal
+  information (1 bit for a wording toggle, 6.9 for option order), so a floor on
+  bits read (sum of log2 alphabet) is the natural refinement. Measured with
+  `python -m eval.bench`: seed 1 suggests identifying only above 16.29 bits, but
+  seed 7 shows 3 false IDs above that line in 3,056 leaks, so the threshold is
+  unstable; seed 7 alone needs 18.59. **Predicted gain at 18.59 bits:
+  single-source 3-question leaks 80–81% → 90–92%; 2-question leaks no gain
+  (0%)**, because the most informative pair of questions (q2 + q5, the MCQs)
+  carries 17.79 bits. `MIN_READ_SLOTS` stays 11. M11 must stabilise the
+  threshold with far more trials before any adoption.
+- **Naming pairs** — see the open decision above.
+- **Contract.** *Fixed:* CLAUDE.md now promises a measured false-identification
+  rate (practical mode) or a provable collusion bound (provable mode).

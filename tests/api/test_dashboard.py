@@ -20,6 +20,7 @@ def test_collect_and_build_render_html(sample_paper: Paper) -> None:
     assert html.startswith("<!doctype html>")
     assert "examfp" in html
     assert "false-id%" in html
+    assert "single-source" in html  # the 0% figure covers single-source leaks only
     assert "QR-code baseline" in html
     assert "<svg" in html
     # Leaked text is present and HTML-escaped (no raw angle-bracket injection).

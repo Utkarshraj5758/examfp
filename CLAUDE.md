@@ -12,7 +12,7 @@ difficulty to every other centre's, but whose *incidental* content (numeric
 groups, unit forms, MCQ option order, wording) is set to a combination unique
 to that centre. When a leak appears — photographed, cropped, retyped or
 reworded — the system recovers that combination and names the source centre,
-with a calibrated bound on the probability of naming an innocent centre.
+with a measured false-identification rate (practical mode) or a provable collusion bound (provable mode).
 
 Two modes exist. Never conflate them in code, docs or claims:
 
@@ -40,8 +40,9 @@ Two modes exist. Never conflate them in code, docs or claims:
    the observation set. The decoder must never fall back to "most likely
    variant".
 4. **No accusation below threshold.** Outcomes are `IDENTIFIED`,
-   `INSUFFICIENT`, `NO_MATCH`. A ranked list without a threshold crossing is
-   not an accusation.
+   `MULTI_SOURCE_SUSPECTED`, `INSUFFICIENT`, `NO_MATCH`. A ranked list without a
+   threshold crossing is not an accusation. `MULTI_SOURCE_SUSPECTED` may name at
+   most one pair, as a hypothesis for investigation only - never an accusation.
 5. **Secrets never touch disk unencrypted and never appear in logs.** Covers
    codebooks, Tardos biases, data keys, KEKs, and raw leak uploads.
 6. **Tests first.** Every module has tests mirroring its path. A milestone is

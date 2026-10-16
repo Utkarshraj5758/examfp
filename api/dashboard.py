@@ -21,7 +21,7 @@ import typer
 
 from eval.bench import BenchRow, run_bench
 from examfp.attacks import crop, retype, typos
-from examfp.cli import ensure_codebook, render_text, vault_from_env
+from examfp.cli import ensure_codebook, render_text, vault_from_env, verdict_lines
 from examfp.decode.read import read_leak
 from examfp.decode.score import score
 from examfp.models import Paper
@@ -38,6 +38,7 @@ class DemoTrace:
     outcome: str
     margin: float
     top5: list[tuple[int, float, bool]]  # (centre, score, is_true)
+    verdict: list[str]  # plain-language verdict, shared wording with the CLI
 
 
 @dataclass(frozen=True)
@@ -70,6 +71,7 @@ def collect(
         outcome=result.outcome.value,
         margin=result.margin,
         top5=top5,
+        verdict=verdict_lines(result),
     )
     report = paper.capacity_report(n_centres=len(codebook), c=3, eps=1e-6)
     bench = run_bench(paper, codebook, k_values=range(1, 9), n_trials=n_trials, seed=seed)
@@ -181,6 +183,7 @@ def build_dashboard(data: DashboardData) -> str:
   .ax {{ fill:var(--muted); font-size:11px; }} .val {{ fill:var(--ink); font-size:11px; }}
   .cap {{ fill:var(--muted); font-size:12px; }}
   .qr {{ color:var(--muted); font-style:italic; margin-top:10px; }}
+  .note {{ color:var(--muted); font-size:13px; margin-top:8px; }}
   .grid2 {{ display:grid; grid-template-columns:1fr 1fr; gap:18px; }}
   @media(max-width:760px){{ .cards{{grid-template-columns:repeat(2,1fr);}} .grid2{{grid-template-columns:1fr;}} }}
 </style></head>
@@ -201,12 +204,16 @@ def build_dashboard(data: DashboardData) -> str:
       {_bars_svg(data.bench)}
     </div>
     <div class="panel">
-      <h2>Sweep ({data.bench[0].trials} trials / k)</h2>
+      <h2>Sweep ({data.bench[0].trials} single-source leaks / k)</h2>
       <table>
         <thead><tr><th>k</th><th>ident%</th><th>correct%</th><th>insuff%</th>
           <th>false-id%</th><th>mean pos</th></tr></thead>
         <tbody>{_table_rows(data.bench)}</tbody>
       </table>
+      <p class="note">false-id% here covers single-source leaks only. Leaks combined
+        from several centres are measured separately (NOTES.md, M5.5): in that
+        benchmark the decision rule identified no innocent centre (0 of 800 colluded
+        leaks), at the cost of refusing more often. Measured, not proved.</p>
     </div>
   </div>
 
@@ -218,6 +225,7 @@ def build_dashboard(data: DashboardData) -> str:
       </div>
       <div>
         <p class="verdict {verdict_cls}">{d.outcome} &middot; margin {d.margin:.2f}</p>
+        <p class="note">{"<br>".join(html.escape(line) for line in d.verdict)}</p>
         <p>true centre <b>{d.centre}</b> &middot; positions read <b>{d.positions_read}</b>
            / erased {erased} (of {d.positions_total})</p>
         <table>

@@ -11,6 +11,11 @@ from __future__ import annotations
 
 import random
 import re
+from collections import Counter
+from collections.abc import Hashable, Mapping, Sequence
+from typing import TypeVar
+
+_P = TypeVar("_P", bound=Hashable)
 
 _MARKS = re.compile(r"\[\s*\d+\s*marks?\s*\]", re.IGNORECASE)
 _QNUM_LEAD = re.compile(r"^\s*(?:Q\s*\d+|\d+)\s*[.)]\s*", re.IGNORECASE)
@@ -93,3 +98,46 @@ def retype(text: str) -> str:
     while collapsed and collapsed[-1] == "":
         collapsed.pop()
     return "\n".join(collapsed)
+
+
+_COLLUSION_STRATEGIES = ("minority", "random")
+
+
+def collude(
+    symbols: Sequence[Mapping[_P, int]], rng: random.Random, strategy: str = "minority"
+) -> dict[_P, int]:
+    """Forge one paper from several centres' papers (marking assumption).
+
+    Colluders compare their papers slot by slot. Where they all agree the slot
+    is undetectable and must be copied; where they differ they choose:
+
+    * ``"minority"``: a value held by the fewest colluders (ties broken by
+      ``rng``) - the classic attack on accusation scores, since the rare value
+      points away from the majority of the coalition;
+    * ``"random"``: the value of a uniformly chosen colluder.
+
+    Guarantees: every output symbol is held by at least one colluder, agreed
+    positions are copied unchanged, and the result is in the first paper's
+    position order. Raises :class:`ValueError` for fewer than two papers,
+    mismatched positions or an unknown strategy. The caller renders the result.
+    """
+    if strategy not in _COLLUSION_STRATEGIES:
+        raise ValueError(f"unknown collusion strategy {strategy!r}")
+    if len(symbols) < 2:
+        raise ValueError("a coalition needs at least two centres")
+    positions = list(symbols[0])
+    if any(set(s) != set(positions) for s in symbols[1:]):
+        raise ValueError("colluders' papers must cover the same positions")
+
+    hybrid: dict[_P, int] = {}
+    for pos in positions:
+        held = [s[pos] for s in symbols]
+        counts = Counter(held)
+        if len(counts) == 1:
+            hybrid[pos] = held[0]
+        elif strategy == "minority":
+            rarest = min(counts.values())
+            hybrid[pos] = rng.choice(sorted(v for v, n in counts.items() if n == rarest))
+        else:
+            hybrid[pos] = rng.choice(held)
+    return hybrid

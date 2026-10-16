@@ -33,7 +33,15 @@ from examfp.codebook.crypto import (
 )
 from examfp.codebook.tardos import TardosCode, bits_per_paper, simulate_pirate
 from examfp.decode.read import read_leak
-from examfp.decode.score import score
+from examfp.decode.score import (
+    MIN_READ_SLOTS,
+    PAIR_HYPOTHESIS_CORRECT,
+    PAIR_HYPOTHESIS_NAMED,
+    Outcome,
+    ScoreResult,
+    score,
+    unique_pair_hypothesis,
+)
 from examfp.models import Paper
 
 app = typer.Typer(add_completion=False, help="examfp end-to-end trace.")
@@ -160,6 +168,14 @@ def trace(
         Path, typer.Option(help="Path to codebook.json or codebook.json.enc.")
     ],
     paper: Annotated[Path, typer.Option(help="Path to the paper JSON.")],
+    hypotheses: Annotated[
+        bool,
+        typer.Option(
+            "--hypotheses/--no-hypotheses",
+            help="For MULTI_SOURCE_SUSPECTED, also print the opt-in pair hypothesis "
+            "with its measured accuracy. Investigative only.",
+        ),
+    ] = False,
 ) -> None:
     """Trace a leaked paper back to its centre."""
     paper_model = Paper.model_validate_json(paper.read_text(encoding="utf-8"))
@@ -174,11 +190,77 @@ def trace(
     typer.echo(f"outcome: {result.outcome.value}   margin: {result.margin:.2f}")
     typer.echo(f"positions read: {read} / erased: {total - read} (of {total})")
     typer.echo("top 5 centres:")
-    for centre, sc in result.ranked[:5]:
-        typer.echo(f"  centre {centre}: {sc:.2f}")
+    for rank, (centre, sc) in enumerate(result.ranked[:5]):
+        tag = "  (consistent)" if rank < result.consistent else ""
+        typer.echo(f"  centre {centre}: {sc:.2f}{tag}")
     typer.echo("recovered positions:")
     for (qid, slot), (symbol, conf) in observations.items():
         typer.echo(f"  {qid}::{slot} = {symbol} (conf {conf:.2f})")
+    typer.echo(
+        f"consistent centres: {result.consistent} (tolerance {result.tolerance} "
+        f"mismatching slots; read floor {MIN_READ_SLOTS} slots)"
+    )
+    for line in verdict_lines(result):
+        typer.echo(line)
+    if hypotheses:
+        if result.outcome is Outcome.MULTI_SOURCE_SUSPECTED:
+            for line in hypothesis_lines(unique_pair_hypothesis(observations, book)):
+                typer.echo(line)
+        else:
+            typer.echo(f"hypothesis (--hypotheses): not applicable - the outcome is "
+                       f"{result.outcome.value}.")
+
+
+def verdict_lines(result: ScoreResult) -> list[str]:
+    """Plain-language verdict.
+
+    Guarantees: only ``IDENTIFIED`` names a centre. ``MULTI_SOURCE_SUSPECTED``
+    names nobody, asserts no collusion, and lists its three possible causes.
+    """
+    if result.outcome is Outcome.IDENTIFIED:
+        return [
+            f"verdict: IDENTIFIED - centre {result.ranked[0][0]} is the only centre "
+            f"consistent with every slot read (margin {result.margin:.2f})."
+        ]
+    if result.outcome is Outcome.MULTI_SOURCE_SUSPECTED:
+        lines = [
+            "verdict: MULTI_SOURCE_SUSPECTED - no single centre in this codebook explains "
+            "the observed slots.",
+            "  Possible causes: (1) the leak combines papers from more than one centre;",
+            "  (2) misreads beyond the gate tolerance "
+            f"({result.tolerance} mismatching slots);",
+            "  (3) the leak comes from a paper outside this codebook.",
+            "  No centre is named.",
+        ]
+        return lines
+    if result.outcome is Outcome.INSUFFICIENT:
+        return ["verdict: INSUFFICIENT - the evidence does not single out any centre."]
+    return ["verdict: NO_MATCH - nothing in the text matched the paper."]
+
+
+def hypothesis_lines(pair: tuple[int, int] | None) -> list[str]:
+    """Wording for the opt-in pair hypothesis (``trace --hypotheses``).
+
+    Guarantees: a reported pair is always printed with its measured accuracy, the
+    statement that a two-centre leak cannot be told from a larger one, and the
+    statement that it is not an accusation.
+    """
+    if pair is None:
+        return [
+            "hypothesis (--hypotheses): no single pair of centres uniquely explains the "
+            "slots read; nobody is named."
+        ]
+    a, b = pair
+    return [
+        f"hypothesis (--hypotheses): {{{a}, {b}}} is the only pair of centres that jointly "
+        "explains the slots read.",
+        f"  Measured accuracy: {PAIR_HYPOTHESIS_CORRECT} of {PAIR_HYPOTHESIS_NAMED} such pairs "
+        "were correct (M5.5 benchmark);",
+        "  every wrong pair came from a leak involving 3 or more centres.",
+        "  The system cannot distinguish a two-centre leak from a larger one, so either",
+        "  centre may have taken no part.",
+        "  This is a hypothesis for investigation, not an accusation.",
+    ]
 
 
 def _centre_symbols(paper: Paper, centre: int, n_centres: int) -> dict[tuple[str, str], int]:
@@ -252,7 +334,8 @@ def demo(
     for rank, (cid, sc) in enumerate(result.ranked[:5], start=1):
         marker = "  <- true" if cid == centre else ""
         typer.echo(f"  {rank}. centre {cid}: {sc:.2f}{marker}")
-    typer.echo(f"verdict: {result.outcome.value}   margin: {result.margin:.2f}")
+    for line in verdict_lines(result):
+        typer.echo(line)
     typer.echo(f"elapsed: {elapsed_ms:.0f} ms")
     typer.echo("QR-code baseline: no result (mark absent from retyped text)")
 

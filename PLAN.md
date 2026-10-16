@@ -15,7 +15,9 @@ acceptance test passes, `.\tasks.ps1 lint` is clean, and PLAN.md is ticked.
 - [x] **M3** Crude mixed-radix `assign`, fuzzy decoder, attacks, CLI, benchmark
 
 Measured baseline to beat: **91% identification at 6 leaked questions, 100% at
-7+, 0% false identification across 1,600 trials, 37 ms to score 1,000 centres.**
+7+, 0% false identification across 1,600 single-source trials, 37 ms to score
+1,000 centres.** *Correction (M5.5): those trials contained no collusion; under
+collusion the same rule named innocent centres in up to 55% of leaks. See M5.5.*
 
 ---
 
@@ -88,6 +90,32 @@ position, before vs after).
 
 ---
 
+### [x] M5.5 — Consistency gate (safety fix, inserted 2026-10-16)
+
+A live safety bug, kept separate from M6: under collusion the margin-only
+decision rule named innocent centres (5.5% of 2-centre leaks, 47–55% of 3–5).
+
+**Built:** consistency gate applied before the margin rule; calibrated mismatch
+tolerance (`MISREAD_RATE`, `FALSE_REJECTION_BUDGET`) with a documented
+recalibration procedure; measured read floor (`MIN_READ_SLOTS = 11`); fourth
+outcome `MULTI_SOURCE_SUSPECTED` (whenever the gate empties above the floor; it
+names nobody and lists three possible causes); the unique-pair hypothesis
+demoted to an opt-in `trace --hypotheses`, printed with its measured accuracy
+(98/109); `collude()` attack (2–5 centres, minority strategy); calibration,
+floor, bits-floor and collusion rows in `eval/bench.py`; claims corrected;
+ADR 0003.
+
+**Status:** done (branch `m5.5-consistency-gate`). 0 innocents identified for
+coalitions of 1–5 after the change; single-source 6-question leaks unchanged at
+200/200; multi-source flagged on 800/800 colluded leaks and 0/200 single-source.
+Cost: leaks of 1–2 questions no longer name a centre. For 2 questions that is a
+capacity bound (17.79 bits available vs ≥ 18.59 needed), not a tuning gap. The
+pair was taken out of the verdict because all 11 wrong pairs came from 3–5-centre
+leaks, which the observation cannot tell apart from 2-centre leaks. Numbers in
+NOTES.md, M5.5.
+
+---
+
 ### [ ] M6 — Fairness checker
 
 The claim the whole project rests on, made machine-checkable.
@@ -120,6 +148,18 @@ lazily and scores a pair in under 300 ms on CPU.
 ---
 
 ### [ ] M7 — OCR path
+
+**First task, before the OCR acceptance test runs:** measure the OCR reader's
+per-slot misread rate and recalibrate the decision rule against it —
+`MISREAD_RATE`, hence the gate tolerance, then `MIN_READ_SLOTS` — using the
+procedure in ADR 0003. *Why first:* the gate's tolerance is 0, calibrated for the
+fuzzy text reader (0 misreads in 104,026 reads). At tolerance 0, a 1% per-slot
+misread rate makes 1 − 0.99¹¹ ≈ 10% of genuine 11-slot leaks fail the gate, and
+those leaks would come back `MULTI_SOURCE_SUSPECTED` or `INSUFFICIENT`. That
+would look like an OCR failure when it is really a gate calibrated for the wrong
+reader. While in this code, decide on the proposed rename of
+`MULTI_SOURCE_SUSPECTED` (NOTES.md, M5.5): the outcome has three causes, and
+OCR misreads make the second more likely.
 
 **Build:** `decode/ocr.py` behind an `OcrBackend` protocol with PaddleOCR and
 Tesseract implementations selected by config; normalisation (Unicode forms,
@@ -228,7 +268,16 @@ retyped settings.
 **Build:** `eval/` sweeps across six attack classes (crop, OCR noise, retype,
 paraphrase at three strengths, translation round-trip, collusion 2–5 centres) ×
 decoder (fuzzy, neural, adversarial) × k leaked questions. Figures for the
-report and paper.
+report and paper. Also a **tolerance × read floor × false-identification sweep
+across noise regimes** (clean, retype, OCR noise, each paraphrase strength):
+for each reader's measured misread rate, the tolerance it implies, the floor
+that keeps innocent identifications at zero, and what that floor costs
+single-source identification. Include the bits-based floor (NOTES.md, M5.5)
+with enough trials to stabilise its threshold. **Hypothesis to validate
+(single seed, M5.5):** the `--hypotheses` pair never included an outsider at
+24 or more slots read. All 75 outsider pairs in the seed-1 floor sweep came
+from leaks with 11–23 reads. Sweep pair accuracy against slots read across
+many seeds before anyone relies on it.
 
 **Acceptance:** `.\tasks.ps1 bench` writes `eval/out/results.csv` plus figures;
 false-identification rate reported for every cell and is zero or has a stated

@@ -76,3 +76,46 @@ def test_six_question_retyped_leak_identification_rate(sample_paper: Paper) -> N
         if result.outcome is Outcome.IDENTIFIED and result.ranked[0][0] == centre:
             hits += 1
     assert hits >= 0.80 * trials, f"identification rate {hits}/{trials} below 80%"
+
+
+# --- M5.5: collusion ---------------------------------------------------------------------------
+def test_collude_obeys_the_marking_assumption(sample_paper: Paper) -> None:
+    from examfp.attacks import collude
+
+    book = assign(sample_paper, 1000, 0)
+    rng = random.Random(3)
+    for size in (2, 3, 4, 5):
+        coalition = [book[c] for c in rng.sample(range(1000), size)]
+        hybrid = collude(coalition, rng)
+        assert list(hybrid) == list(coalition[0])  # same positions, same order
+        for pos, value in hybrid.items():
+            held = [v[pos] for v in coalition]
+            assert value in held  # every symbol comes from some colluder
+            if len(set(held)) == 1:
+                assert value == held[0]  # undetectable positions are forced
+
+
+def test_minority_strategy_picks_the_rarest_value() -> None:
+    from examfp.attacks import collude
+
+    a = {("q1", "x"): 0, ("q1", "y"): 5}
+    b = {("q1", "x"): 0, ("q1", "y"): 5}
+    c = {("q1", "x"): 1, ("q1", "y"): 6}
+    for seed in range(20):
+        hybrid = collude([a, b, c], random.Random(seed), strategy="minority")
+        assert hybrid == {("q1", "x"): 1, ("q1", "y"): 6}  # c's value is the minority
+
+
+def test_collude_is_deterministic_and_validates() -> None:
+    import pytest
+
+    from examfp.attacks import collude
+
+    a, b = {("q", "s"): 0}, {("q", "s"): 1}
+    assert collude([a, b], random.Random(9)) == collude([a, b], random.Random(9))
+    with pytest.raises(ValueError):
+        collude([a], random.Random(0))  # a coalition needs at least two centres
+    with pytest.raises(ValueError):
+        collude([a, {("q", "other"): 1}], random.Random(0))  # positions must match
+    with pytest.raises(ValueError):
+        collude([a, b], random.Random(0), strategy="majority")

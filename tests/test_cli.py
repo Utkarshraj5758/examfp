@@ -194,3 +194,107 @@ def test_demo_refuses_a_stale_codebook(tmp_path: Path, monkeypatch) -> None:  # 
     assert result.exit_code != 0
     assert "current codebook scheme" in result.output
     assert "Traceback" not in result.output
+
+
+# --- M5.5: collusion hypothesis wording --------------------------------------------------------
+def _collusion_trace(
+    tmp_path: Path, size: int, wanted: str, extra: tuple[str, ...] = ()
+) -> tuple[str, Path, Path, list[int]]:
+    """Trace full-paper hybrids of `size` centres until the output contains `wanted`."""
+    import random
+
+    from examfp.attacks import collude
+    from examfp.cli import render_text
+    from examfp.codebook.assign import assign
+    from examfp.models import Paper
+
+    paper = Paper.model_validate_json(Path(SAMPLE).read_text(encoding="utf-8"))
+    out = tmp_path / "out"
+    runner.invoke(app, ["generate", SAMPLE, "--centres", "1000", "--out", str(out)])
+    book = assign(paper, 1000, seed=0)
+    leak = tmp_path / "leak.txt"
+    for seed in range(30):
+        rng = random.Random(seed)
+        group = rng.sample(range(1000), size)
+        leak.write_text(render_text(paper, collude([book[c] for c in group], rng)),
+                        encoding="utf-8")
+        result = runner.invoke(app, ["trace", str(leak), "--codebook",
+                                     str(out / "codebook.json"), "--paper", SAMPLE, *extra])
+        if wanted in result.output:
+            return result.output, leak, out / "codebook.json", group
+    raise AssertionError(f"no seed produced {wanted!r}")
+
+
+def _no_accusation(output: str) -> None:
+    text = output.lower()
+    for word in ("accused", "guilty", "leaked by", "identified -"):
+        assert word not in text
+
+
+def test_default_trace_names_nobody_for_a_multi_source_leak(tmp_path: Path) -> None:
+    output, leak, codebook, pair = _collusion_trace(
+        tmp_path, 2, "is the only pair", extra=("--hypotheses",)
+    )
+    plain = runner.invoke(app, ["trace", str(leak), "--codebook", str(codebook),
+                                "--paper", SAMPLE]).output
+    verdict = plain[plain.index("verdict:"):]
+    assert "MULTI_SOURCE_SUSPECTED" in verdict and "No centre is named." in verdict
+    assert "{" not in verdict and "hypothesis (--hypotheses)" not in plain
+    _no_accusation(plain)
+
+
+def test_hypotheses_flag_prints_the_pair_with_its_measured_accuracy(tmp_path: Path) -> None:
+    output, _leak, _codebook, pair = _collusion_trace(
+        tmp_path, 2, "is the only pair", extra=("--hypotheses",)
+    )
+    assert f"{{{min(pair)}, {max(pair)}}}" in output
+    assert "98 of 109" in output
+    assert "3 or more centres" in output
+    assert "cannot distinguish a two-centre leak from a larger one" in output
+    assert "not an accusation" in output
+    _no_accusation(output)
+
+
+def test_hypothesis_lines_wording() -> None:
+    from examfp.cli import hypothesis_lines
+
+    none = "\n".join(hypothesis_lines(None))
+    assert "nobody is named" in none and "{" not in none
+    named = "\n".join(hypothesis_lines((3, 17)))
+    assert "{3, 17}" in named and "98 of 109" in named
+    assert "cannot distinguish a two-centre leak from a larger one" in named
+
+
+def test_trace_never_names_three_or_more(tmp_path: Path) -> None:
+    output, *_rest = _collusion_trace(tmp_path, 3, "MULTI_SOURCE_SUSPECTED")
+    verdict = output[output.index("verdict:"):]
+    assert "No centre is named." in verdict and "{" not in verdict
+    _no_accusation(output)
+
+
+def test_trace_shows_gate_evidence(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    runner.invoke(app, ["generate", SAMPLE, "--centres", "100", "--out", str(out)])
+    leak = tmp_path / "leak.txt"
+    leak.write_text((out / "centre_7.txt").read_text(encoding="utf-8"), encoding="utf-8")
+    result = runner.invoke(
+        app, ["trace", str(leak), "--codebook", str(out / "codebook.json"), "--paper", SAMPLE]
+    )
+    assert result.exit_code == 0, result.output
+    assert "consistent centres: 1" in result.output
+    assert "read floor" in result.output
+
+
+def test_multi_source_verdict_lists_causes_and_asserts_no_collusion() -> None:
+    from examfp.cli import verdict_lines
+    from examfp.decode.score import Outcome, ScoreResult
+
+    result = ScoreResult(ranked=[(5, 1.0)], margin=0.0, positions_used=20,
+                         outcome=Outcome.MULTI_SOURCE_SUSPECTED, consistent=0, tolerance=0)
+    text = "\n".join(verdict_lines(result))
+    assert "no single centre in this codebook explains the observed slots" in text
+    assert "more than one centre" in text  # cause 1: multiple sources
+    assert "misreads beyond the gate tolerance (0 mismatching slots)" in text  # cause 2
+    assert "outside this codebook" in text  # cause 3
+    assert "most likely" not in text  # it must not assert collusion
+    assert "No centre is named." in text

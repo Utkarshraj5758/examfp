@@ -174,3 +174,18 @@ def test_bits_floor_and_predicted_gain() -> None:
     by_slots, by_bits = predicted_identification(trials, k=2, slot_floor=11, bits_floor=12.5)
     assert by_slots == 0.0  # no 2-question leak reaches 11 slots
     assert by_bits == pytest.approx(1 / 3)  # the 17-bit leak clears 12.5 bits
+
+
+def test_printed_pair_accuracy_matches_the_benchmark(sample_paper: Paper) -> None:
+    # trace --hypotheses prints PAIR_HYPOTHESIS_CORRECT of PAIR_HYPOTHESIS_NAMED. Rerun
+    # the exact benchmark that produced them, so the printed claim cannot drift.
+    from eval.bench import run_collusion_bench
+    from examfp.decode.score import PAIR_HYPOTHESIS_CORRECT, PAIR_HYPOTHESIS_NAMED
+
+    rows = [r for r in run_collusion_bench(sample_paper, assign(sample_paper, 1000, 0),
+                                           n_trials=200, seed=2) if r.rule == "after"]
+    named = sum(r.pair_exact + r.pair_partial + r.pair_with_innocent for r in rows)
+    correct = sum(r.pair_exact + r.pair_partial for r in rows)
+    assert (correct, named) == (PAIR_HYPOTHESIS_CORRECT, PAIR_HYPOTHESIS_NAMED)
+    # Every wrong pair came from a leak involving three or more centres.
+    assert all(r.pair_with_innocent == 0 for r in rows if r.coalition <= 2)

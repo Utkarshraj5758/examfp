@@ -49,6 +49,7 @@ from examfp.decode.score import (
     Outcome,
     ScoreResult,
     score,
+    unique_pair_hypothesis,
 )
 from examfp.models import Paper
 
@@ -330,7 +331,9 @@ def floor_trials(
                 if result.outcome is Outcome.IDENTIFIED:
                     kind = "correct" if result.ranked[0][0] in sources else "false"
                 elif result.outcome is Outcome.MULTI_SOURCE_SUSPECTED:
-                    innocent = any(c not in sources for c in result.named_pair)
+                    pair = unique_pair_hypothesis(observed, codebook,
+                                                  misread_rate=misread_rate, min_read_slots=0)
+                    innocent = pair is not None and any(c not in sources for c in pair)
                     kind = "multi_source_pair_innocent" if innocent else "multi_source"
                 else:
                     kind = "refused"
@@ -403,6 +406,7 @@ class CollusionRow:
     trials: int
     identified_colluder: int
     identified_innocent: int
+    # Pair columns describe the opt-in hypothesis (trace --hypotheses), never a verdict.
     pair_exact: int  # multi-source, named pair == the coalition
     pair_partial: int  # multi-source, named pair inside the coalition
     pair_with_innocent: int  # multi-source, named pair includes a non-colluder
@@ -412,11 +416,17 @@ class CollusionRow:
     mean_reads: float
 
 
-def _classify(result: ScoreResult, sources: list[int]) -> str:
+def _classify(
+    result: ScoreResult,
+    sources: list[int],
+    observed: Mapping[tuple[str, str], tuple[int, float]],
+    codebook: Codebook,
+) -> str:
+    """Bucket one outcome; multi-source leaks are split by the opt-in pair hypothesis."""
     if result.outcome is Outcome.IDENTIFIED:
         return "identified_colluder" if result.ranked[0][0] in sources else "identified_innocent"
     if result.outcome is Outcome.MULTI_SOURCE_SUSPECTED:
-        named = set(result.named_pair)
+        named = set(unique_pair_hypothesis(observed, codebook) or ())
         if not named:
             return "multi_source_unnamed"
         if not named <= set(sources):
@@ -449,7 +459,7 @@ def run_collusion_bench(
             observed = read_leak(_leak(paper, codebook, sources, k_questions, rng), paper)
             reads += len(observed)
             for rule, decide in rules:
-                kind = _classify(decide(observed, codebook), sources)
+                kind = _classify(decide(observed, codebook), sources, observed, codebook)
                 counts[rule][kind] = counts[rule].get(kind, 0) + 1
         for rule, _decide in rules:
             c = counts[rule]

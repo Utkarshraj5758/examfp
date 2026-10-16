@@ -197,7 +197,9 @@ def test_demo_refuses_a_stale_codebook(tmp_path: Path, monkeypatch) -> None:  # 
 
 
 # --- M5.5: collusion hypothesis wording --------------------------------------------------------
-def _collusion_trace(tmp_path: Path, size: int, wanted: str) -> tuple[str, list[int]]:
+def _collusion_trace(
+    tmp_path: Path, size: int, wanted: str, extra: tuple[str, ...] = ()
+) -> tuple[str, Path, Path, list[int]]:
     """Trace full-paper hybrids of `size` centres until the output contains `wanted`."""
     import random
 
@@ -216,11 +218,10 @@ def _collusion_trace(tmp_path: Path, size: int, wanted: str) -> tuple[str, list[
         group = rng.sample(range(1000), size)
         leak.write_text(render_text(paper, collude([book[c] for c in group], rng)),
                         encoding="utf-8")
-        result = runner.invoke(
-            app, ["trace", str(leak), "--codebook", str(out / "codebook.json"), "--paper", SAMPLE]
-        )
+        result = runner.invoke(app, ["trace", str(leak), "--codebook",
+                                     str(out / "codebook.json"), "--paper", SAMPLE, *extra])
         if wanted in result.output:
-            return result.output, group
+            return result.output, leak, out / "codebook.json", group
     raise AssertionError(f"no seed produced {wanted!r}")
 
 
@@ -230,19 +231,44 @@ def _no_accusation(output: str) -> None:
         assert word not in text
 
 
-def test_trace_names_a_pair_only_as_a_hypothesis(tmp_path: Path) -> None:
-    output, pair = _collusion_trace(tmp_path, 2, "Exactly one pair")
-    assert "MULTI_SOURCE_SUSPECTED" in output
-    assert "hypothesis" in output and "not an accusation" in output
+def test_default_trace_names_nobody_for_a_multi_source_leak(tmp_path: Path) -> None:
+    output, leak, codebook, pair = _collusion_trace(
+        tmp_path, 2, "is the only pair", extra=("--hypotheses",)
+    )
+    plain = runner.invoke(app, ["trace", str(leak), "--codebook", str(codebook),
+                                "--paper", SAMPLE]).output
+    verdict = plain[plain.index("verdict:"):]
+    assert "MULTI_SOURCE_SUSPECTED" in verdict and "No centre is named." in verdict
+    assert "{" not in verdict and "hypothesis (--hypotheses)" not in plain
+    _no_accusation(plain)
+
+
+def test_hypotheses_flag_prints_the_pair_with_its_measured_accuracy(tmp_path: Path) -> None:
+    output, _leak, _codebook, pair = _collusion_trace(
+        tmp_path, 2, "is the only pair", extra=("--hypotheses",)
+    )
     assert f"{{{min(pair)}, {max(pair)}}}" in output
+    assert "98 of 109" in output
+    assert "3 or more centres" in output
+    assert "cannot distinguish a two-centre leak from a larger one" in output
+    assert "not an accusation" in output
     _no_accusation(output)
 
 
+def test_hypothesis_lines_wording() -> None:
+    from examfp.cli import hypothesis_lines
+
+    none = "\n".join(hypothesis_lines(None))
+    assert "nobody is named" in none and "{" not in none
+    named = "\n".join(hypothesis_lines((3, 17)))
+    assert "{3, 17}" in named and "98 of 109" in named
+    assert "cannot distinguish a two-centre leak from a larger one" in named
+
+
 def test_trace_never_names_three_or_more(tmp_path: Path) -> None:
-    output, _group = _collusion_trace(tmp_path, 3, "MULTI_SOURCE_SUSPECTED")
+    output, *_rest = _collusion_trace(tmp_path, 3, "MULTI_SOURCE_SUSPECTED")
     verdict = output[output.index("verdict:"):]
-    assert "No centre is named" in verdict or "Exactly one pair" in verdict
-    assert verdict.count("{") <= 1  # at most one named set, and it is a pair
+    assert "No centre is named." in verdict and "{" not in verdict
     _no_accusation(output)
 
 

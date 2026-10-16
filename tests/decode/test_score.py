@@ -101,22 +101,30 @@ def test_emptied_gate_above_the_floor_is_multi_source() -> None:
     assert result.outcome is Outcome.MULTI_SOURCE_SUSPECTED
 
 
-def test_unique_minimal_pair_is_named() -> None:
+def test_the_verdict_names_nobody() -> None:
     result = score(HYBRID, TOY, **STRICT)
-    assert result.named_pair == (A, B)  # INNOCENT cannot help explain p4 or p9 in a pair
-
-
-def test_ambiguous_pair_is_multi_source_with_nobody_named() -> None:
-    # Make INNOCENT explain p4: now {A, B} and {INNOCENT, B} both cover the reads.
-    toy = dict(TOY)
-    toy[INNOCENT] = {**TOY[INNOCENT], P[4]: 0}
-    result = score(HYBRID, toy, **STRICT)
     assert result.outcome is Outcome.MULTI_SOURCE_SUSPECTED
-    assert result.named_pair == ()
+    assert not hasattr(result, "named_pair")  # the pair is not part of any verdict
 
 
-def test_three_source_hybrid_names_no_set() -> None:
-    # p0-p2 from A, p3-p5 from B, p6-p8 from C: only a triple explains the reads.
+def test_pair_hypothesis_is_opt_in_and_unique() -> None:
+    from examfp.decode.score import unique_pair_hypothesis
+
+    assert unique_pair_hypothesis(HYBRID, TOY, **STRICT) == (A, B)
+
+
+def test_pair_hypothesis_none_when_ambiguous() -> None:
+    from examfp.decode.score import unique_pair_hypothesis
+
+    toy = dict(TOY)  # INNOCENT now explains p4 too: {A, B} and {INNOCENT, B} both cover
+    toy[INNOCENT] = {**TOY[INNOCENT], P[4]: 0}
+    assert score(HYBRID, toy, **STRICT).outcome is Outcome.MULTI_SOURCE_SUSPECTED
+    assert unique_pair_hypothesis(HYBRID, toy, **STRICT) is None
+
+
+def test_pair_hypothesis_never_names_three_or_more() -> None:
+    from examfp.decode.score import unique_pair_hypothesis
+
     q = [("q", f"t{i}") for i in range(9)]
     toy = {
         1: {x: 0 for x in q},
@@ -124,22 +132,31 @@ def test_three_source_hybrid_names_no_set() -> None:
         3: {x: 2 for x in q},
         **{c: {x: 9 for x in q} for c in range(10, 30)},
     }
-    hybrid = {x: (i // 3, 1.0) for i, x in enumerate(q)}
-    result = score(hybrid, toy, **STRICT)
-    assert result.outcome is Outcome.MULTI_SOURCE_SUSPECTED
-    assert result.named_pair == ()  # sets of three or more are never named
+    hybrid = {x: (i // 3, 1.0) for i, x in enumerate(q)}  # only a triple explains it
+    assert score(hybrid, toy, **STRICT).outcome is Outcome.MULTI_SOURCE_SUSPECTED
+    assert unique_pair_hypothesis(hybrid, toy, **STRICT) is None
+
+
+def test_pair_hypothesis_needs_an_emptied_gate_and_the_floor() -> None:
+    from examfp.decode.score import unique_pair_hypothesis
+
+    single = {p: (TOY[A][p], 1.0) for p in P}  # A explains it alone: not multi-source
+    assert unique_pair_hypothesis(single, TOY, **STRICT) is None
+    assert unique_pair_hypothesis(HYBRID, TOY, misread_rate=0.0, min_read_slots=11) is None
 
 
 def test_multi_source_needs_the_read_floor() -> None:
     result = score(HYBRID, TOY, misread_rate=0.0, min_read_slots=11)
     assert result.outcome is Outcome.INSUFFICIENT
-    assert result.named_pair == ()
 
 
 def test_exhausted_pair_search_names_nobody() -> None:
-    result = score(HYBRID, TOY, **STRICT, cover_node_budget=1)
-    assert result.outcome is Outcome.MULTI_SOURCE_SUSPECTED  # the signal does not need the search
-    assert result.named_pair == ()  # never a partial or unverified name
+    from examfp.decode.score import unique_pair_hypothesis
+
+    assert score(HYBRID, TOY, **STRICT, cover_node_budget=1).outcome is (
+        Outcome.MULTI_SOURCE_SUSPECTED  # the signal does not need the search
+    )
+    assert unique_pair_hypothesis(HYBRID, TOY, **STRICT, cover_node_budget=1) is None
 
 
 def test_single_source_leak_is_identified() -> None:
@@ -147,7 +164,6 @@ def test_single_source_leak_is_identified() -> None:
     result = score(leak, TOY, **STRICT)
     assert result.outcome is Outcome.IDENTIFIED
     assert result.ranked[0][0] == A and result.consistent == 1
-    assert result.named_pair == ()
 
 
 def test_read_floor_blocks_identification_on_thin_leaks() -> None:

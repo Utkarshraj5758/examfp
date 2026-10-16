@@ -33,7 +33,15 @@ from examfp.codebook.crypto import (
 )
 from examfp.codebook.tardos import TardosCode, bits_per_paper, simulate_pirate
 from examfp.decode.read import read_leak
-from examfp.decode.score import MIN_READ_SLOTS, Outcome, ScoreResult, score
+from examfp.decode.score import (
+    MIN_READ_SLOTS,
+    PAIR_HYPOTHESIS_CORRECT,
+    PAIR_HYPOTHESIS_NAMED,
+    Outcome,
+    ScoreResult,
+    score,
+    unique_pair_hypothesis,
+)
 from examfp.models import Paper
 
 app = typer.Typer(add_completion=False, help="examfp end-to-end trace.")
@@ -160,6 +168,14 @@ def trace(
         Path, typer.Option(help="Path to codebook.json or codebook.json.enc.")
     ],
     paper: Annotated[Path, typer.Option(help="Path to the paper JSON.")],
+    hypotheses: Annotated[
+        bool,
+        typer.Option(
+            "--hypotheses/--no-hypotheses",
+            help="For MULTI_SOURCE_SUSPECTED, also print the opt-in pair hypothesis "
+            "with its measured accuracy. Investigative only.",
+        ),
+    ] = False,
 ) -> None:
     """Trace a leaked paper back to its centre."""
     paper_model = Paper.model_validate_json(paper.read_text(encoding="utf-8"))
@@ -186,14 +202,20 @@ def trace(
     )
     for line in verdict_lines(result):
         typer.echo(line)
+    if hypotheses:
+        if result.outcome is Outcome.MULTI_SOURCE_SUSPECTED:
+            for line in hypothesis_lines(unique_pair_hypothesis(observations, book)):
+                typer.echo(line)
+        else:
+            typer.echo(f"hypothesis (--hypotheses): not applicable - the outcome is "
+                       f"{result.outcome.value}.")
 
 
 def verdict_lines(result: ScoreResult) -> list[str]:
-    """Plain-language verdict. A collusion result is worded as a hypothesis only.
+    """Plain-language verdict.
 
-    Guarantees: only ``IDENTIFIED`` names a single centre as the source. A
-    ``MULTI_SOURCE_SUSPECTED`` text names at most a pair, always as a hypothesis
-    and never an accusation, and never a set of three or more.
+    Guarantees: only ``IDENTIFIED`` names a centre. ``MULTI_SOURCE_SUSPECTED``
+    names nobody, asserts no collusion, and lists its three possible causes.
     """
     if result.outcome is Outcome.IDENTIFIED:
         return [
@@ -208,19 +230,37 @@ def verdict_lines(result: ScoreResult) -> list[str]:
             "  (2) misreads beyond the gate tolerance "
             f"({result.tolerance} mismatching slots);",
             "  (3) the leak comes from a paper outside this codebook.",
+            "  No centre is named.",
         ]
-        if result.named_pair:
-            a, b = result.named_pair
-            lines += [
-                f"  Exactly one pair of centres, {{{a}, {b}}}, jointly explains the slots read.",
-                "  This is a hypothesis for investigation, not an accusation of either centre.",
-            ]
-        else:
-            lines.append("  No centre is named.")
         return lines
     if result.outcome is Outcome.INSUFFICIENT:
         return ["verdict: INSUFFICIENT - the evidence does not single out any centre."]
     return ["verdict: NO_MATCH - nothing in the text matched the paper."]
+
+
+def hypothesis_lines(pair: tuple[int, int] | None) -> list[str]:
+    """Wording for the opt-in pair hypothesis (``trace --hypotheses``).
+
+    Guarantees: a named pair is always printed with its measured accuracy, the
+    statement that a two-centre leak cannot be told from a larger one, and the
+    statement that it is not an accusation.
+    """
+    if pair is None:
+        return [
+            "hypothesis (--hypotheses): no single pair of centres uniquely explains the "
+            "slots read; nobody is named."
+        ]
+    a, b = pair
+    return [
+        f"hypothesis (--hypotheses): {{{a}, {b}}} is the only pair of centres that jointly "
+        "explains the slots read.",
+        f"  Measured accuracy: {PAIR_HYPOTHESIS_CORRECT} of {PAIR_HYPOTHESIS_NAMED} such pairs "
+        "were correct (M5.5 benchmark);",
+        "  every wrong pair came from a leak involving 3 or more centres.",
+        "  The system cannot distinguish a two-centre leak from a larger one, so either",
+        "  centre may have taken no part.",
+        "  This is a hypothesis for investigation, not an accusation.",
+    ]
 
 
 def _centre_symbols(paper: Paper, centre: int, n_centres: int) -> dict[tuple[str, str], int]:

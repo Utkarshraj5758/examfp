@@ -2,7 +2,7 @@
     TRACE task runner (PowerShell stand-in for make).
 
     Usage:  .\tasks.ps1 <task> [extra args]
-    Tasks:  test lint fmt demo dashboard bench fetch-models train
+    Tasks:  test lint fmt demo dashboard bench fetch-models fairness train
             up down logs smoke clean help
 
     If Windows reports "running scripts is disabled on this system", allow
@@ -89,6 +89,15 @@ switch ($Task.ToLower()) {
         Invoke-Step "fetch the pinned NLI model into models\" { python -m ml.fetch_models @Rest }
     }
 
+    "fairness" {
+        # M6 acceptance with the real NLI model. A missing model or extra FAILS
+        # here (a plain test run only skips), so this cannot pass vacuously.
+        Use-Venv
+        $env:TRACE_REQUIRE_LOCAL_MODEL = "1"
+        Invoke-Step "fairness acceptance (local model)" { python -m pytest -q -rxX -m local_model tests\fairness @Rest }
+        Invoke-Step "NLI reliability (held-out set, fixture agreement)" { python -m eval.nli_reliability }
+    }
+
     "train" {
         Assert-Exists "ml\train_decoder.py" "M9"
         Use-Venv
@@ -140,6 +149,7 @@ TRACE task runner
   .\tasks.ps1 dashboard  static HTML dashboard -> out\dashboard.html
   .\tasks.ps1 bench      evaluation sweeps -> eval\out\
   .\tasks.ps1 fetch-models  download the pinned NLI model -> models\
+  .\tasks.ps1 fairness   M6 acceptance + NLI reliability (needs the model)
   .\tasks.ps1 train      fine-tune the neural decoder
   .\tasks.ps1 up         docker compose up (api, worker, db, web)
   .\tasks.ps1 down       docker compose down

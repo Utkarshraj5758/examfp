@@ -98,15 +98,18 @@ decision rule named innocent centres (5.5% of 2-centre leaks, 47–55% of 3–5)
 **Built:** consistency gate applied before the margin rule; calibrated mismatch
 tolerance (`MISREAD_RATE`, `FALSE_REJECTION_BUDGET`) with a documented
 recalibration procedure; measured read floor (`MIN_READ_SLOTS = 11`); fourth
-outcome `COLLUSION_SUSPECTED` (unique minimal covering set, worded as a
-hypothesis only); `collude()` attack (2–5 centres, minority strategy);
-calibration, floor and collusion rows in `eval/bench.py`; claims corrected;
-ADR 0003.
+outcome `MULTI_SOURCE_SUSPECTED` (whenever the gate empties above the floor; a
+pair is named only when exactly one pair explains the reads, as a hypothesis;
+sets of 3+ never named); `collude()` attack (2–5 centres, minority strategy);
+calibration, floor, bits-floor and collusion rows in `eval/bench.py`; claims
+corrected; ADR 0003.
 
 **Status:** done (branch `m5.5-consistency-gate`, stacked on M5). 0 innocents
 identified for coalitions of 1–5 after the change; single-source 6-question
-leaks unchanged at 200/200. Cost: leaks of 1–2 questions no longer name a
-centre. Numbers in NOTES.md, M5.5.
+leaks unchanged at 200/200; multi-source flagged on 800/800 colluded leaks and
+0/200 single-source. Cost: leaks of 1–2 questions no longer name a centre. Open:
+named pairs from 3–5-centre leaks include an outsider (11 of 11) — owner to
+decide whether pairs are named at all. Numbers in NOTES.md, M5.5.
 
 ---
 
@@ -142,6 +145,16 @@ lazily and scores a pair in under 300 ms on CPU.
 ---
 
 ### [ ] M7 — OCR path
+
+**First task, before the OCR acceptance test runs:** measure the OCR reader's
+per-slot misread rate and recalibrate the decision rule against it —
+`MISREAD_RATE`, hence the gate tolerance, then `MIN_READ_SLOTS` — using the
+procedure in ADR 0003. *Why first:* the gate's tolerance is 0, calibrated for the
+fuzzy text reader (0 misreads in 104,026 reads). At tolerance 0, a 1% per-slot
+misread rate makes 1 − 0.99¹¹ ≈ 10% of genuine 11-slot leaks fail the gate, and
+those leaks would come back `MULTI_SOURCE_SUSPECTED` or `INSUFFICIENT`. That
+would look like an OCR failure when it is really a gate calibrated for the wrong
+reader.
 
 **Build:** `decode/ocr.py` behind an `OcrBackend` protocol with PaddleOCR and
 Tesseract implementations selected by config; normalisation (Unicode forms,
@@ -250,7 +263,12 @@ retyped settings.
 **Build:** `eval/` sweeps across six attack classes (crop, OCR noise, retype,
 paraphrase at three strengths, translation round-trip, collusion 2–5 centres) ×
 decoder (fuzzy, neural, adversarial) × k leaked questions. Figures for the
-report and paper.
+report and paper. Also a **tolerance × read floor × false-identification sweep
+across noise regimes** (clean, retype, OCR noise, each paraphrase strength):
+for each reader's measured misread rate, the tolerance it implies, the floor
+that keeps innocent identifications at zero, and what that floor costs
+single-source identification. Include the bits-based floor (NOTES.md, M5.5)
+with enough trials to stabilise its threshold.
 
 **Acceptance:** `.\tasks.ps1 bench` writes `eval/out/results.csv` plus figures;
 false-identification rate reported for every cell and is zero or has a stated

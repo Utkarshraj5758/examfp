@@ -57,7 +57,8 @@ assumption, same tolerance). It runs only under `trace --hypotheses`. It reports
 a pair only when exactly one pair covers the reads; sets of three or more are
 never reported, and an ambiguous cover or an exhausted node budget reports
 nobody. Any pair is printed together with its measured accuracy (98 correct of
-109 on the M5.5 bench, every wrong one from a leak involving 3 or more centres).
+109 on the M5.5 bench, 117 of 126 after M6 revised the sample paper; every wrong
+one from a leak involving 3 or more centres).
 The output also states that the system cannot distinguish a two-centre leak from
 a larger one.
 
@@ -81,8 +82,18 @@ opt-in hypothesis above, for the reason given under Consequences.
 | tolerance | 0 (≤ 31 reads) | smallest `t` with `P(Bin(reads, rate) > t) <= budget` |
 | `MIN_READ_SLOTS` | 11 | gate without a floor: innocents named at up to 10 reads, never from 11 up (0 in 5,804; 95% UB 0.052%) |
 
-**Recalibration procedure** (required whenever the reader changes; OCR in M7
-and paraphrase in M8–M10 will raise the misread rate):
+**Re-measured 2026-10-17 (M6), after the fairness fixes changed the sample
+paper:** 0 misreads in 104,098 read slots (same bound, tolerance 0); innocents
+again identified at up to 10 reads and never from 11 up on seeds 1 and 7 (0 in
+5,812 leaks), so `MIN_READ_SLOTS` stays 11; 0 innocents identified for coalitions
+of 1–5. Only the pair accuracy moved (117 of 126). The first M6 draft of the
+paper used a wording variant that is nearly a prefix of its reference ("Show
+your work." beside "Show your working."). It produced 6 misreads, which would
+have raised the tolerance to 1 and the floor to 16, and cut 3-question leaks to
+0% and 4-question leaks to 47.5%. The paper was changed instead (NOTES.md, M6).
+
+**Recalibration procedure** (required whenever the reader or the paper changes;
+OCR in M7 and paraphrase in M8–M10 will raise the misread rate):
 
 1. Run `python -m eval.bench`. It reports misreads against the true source on
    6,000 single-source leaks and the 95% upper bound.

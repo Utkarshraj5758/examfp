@@ -271,7 +271,7 @@ def hypothesis_lines(pair: tuple[int, int] | None) -> list[str]:
         f"hypothesis (--hypotheses): {{{a}, {b}}} is the only pair of centres that jointly "
         "explains the slots read.",
         f"  Measured accuracy: {PAIR_HYPOTHESIS_CORRECT} of {PAIR_HYPOTHESIS_NAMED} such pairs "
-        "were correct (M5.5 benchmark);",
+        "were correct (collusion benchmark, sample paper);",
         "  every wrong pair came from a leak involving 3 or more centres.",
         "  The system cannot distinguish a two-centre leak from a larger one, so either",
         "  centre may have taken no part.",

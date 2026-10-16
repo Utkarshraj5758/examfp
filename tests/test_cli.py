@@ -8,6 +8,7 @@ import pytest
 from typer.testing import CliRunner
 
 from examfp.cli import app
+from examfp.decode.score import PAIR_HYPOTHESIS_CORRECT, PAIR_HYPOTHESIS_NAMED
 
 runner = CliRunner()
 SAMPLE = str(Path(__file__).resolve().parents[1] / "data" / "papers" / "sample.json")
@@ -249,7 +250,7 @@ def test_hypotheses_flag_prints_the_pair_with_its_measured_accuracy(tmp_path: Pa
         tmp_path, 2, "is the only pair", extra=("--hypotheses",)
     )
     assert f"{{{min(pair)}, {max(pair)}}}" in output
-    assert "98 of 109" in output
+    assert f"{PAIR_HYPOTHESIS_CORRECT} of {PAIR_HYPOTHESIS_NAMED}" in output
     assert "3 or more centres" in output
     assert "cannot distinguish a two-centre leak from a larger one" in output
     assert "not an accusation" in output
@@ -262,7 +263,7 @@ def test_hypothesis_lines_wording() -> None:
     none = "\n".join(hypothesis_lines(None))
     assert "nobody is named" in none and "{" not in none
     named = "\n".join(hypothesis_lines((3, 17)))
-    assert "{3, 17}" in named and "98 of 109" in named
+    assert "{3, 17}" in named and f"{PAIR_HYPOTHESIS_CORRECT} of {PAIR_HYPOTHESIS_NAMED}" in named
     assert "cannot distinguish a two-centre leak from a larger one" in named
 
 

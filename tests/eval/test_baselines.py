@@ -19,7 +19,8 @@ def test_mixed_radix_is_position_dependent(sample_paper: Paper) -> None:
     # The weakness M5 removes (NOTES.md, F3): high-order positions never change.
     book = mixed_radix_assign(sample_paper, 1000)
     constant = [p for p in sample_paper.positions() if len({book[c][p] for c in book}) == 1]
-    assert len(constant) == 20
+    # 20 of 31 on the pre-M6 paper; 19 since M6 shrank q3 and q7 to 5 variants each.
+    assert len(constant) == 19
 
 
 def test_ungated_rule_names_the_nearest_innocent_in_a_hybrid() -> None:

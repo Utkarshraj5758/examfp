@@ -255,9 +255,10 @@ confirming the baseline was preserved verbatim. Raw data: `eval/out/results.csv`
 
 ## M5.5 — consistency gate: a live safety bug (2026-10-16)
 
-*Revised after review: the collusion outcome is `MULTI_SOURCE_SUSPECTED`
+*Revised twice after review: the collusion outcome is `MULTI_SOURCE_SUSPECTED`
 (formerly `COLLUSION_SUSPECTED`), raised whenever the gate eliminates every
-centre above the floor, and it names at most a uniquely explaining pair.*
+centre above the floor. It names nobody. The pair hypothesis has been demoted to
+an opt-in `trace --hypotheses` (see "Named pair demoted" below).*
 
 **The bug.** The margin-only rule (M3–M5) named innocent centres under
 collusion, and the "0% false identification" reported until now covered
@@ -269,7 +270,7 @@ distance is 8, and colluders can mix slots inside a symbol.
 
 ### Before / after (minority-strategy collusion, 6 questions, retype, 3% typos, 200 leaks per row)
 
-| centres in leak | innocent identified, before | innocent identified, after | after: `MULTI_SOURCE_SUSPECTED` | named pair = exact coalition | named pair incl. an outsider |
+| centres in leak | innocent identified, before | innocent identified, after | after: `MULTI_SOURCE_SUSPECTED` | `--hypotheses` pair = exact coalition | `--hypotheses` pair incl. an outsider |
 |---|--:|--:|--:|--:|--:|
 | 1 (single source) | 0 | 0 — all 200 identified | **0** | – | – |
 | 2 | 11 (5.5%) | **0** | **200** | 98 | 0 |
@@ -278,9 +279,10 @@ distance is 8, and colluders can mix slots inside a symbol.
 | 5 | 100 (50%) | **0** | **200** | 0 | 2 |
 
 The multi-source signal fired on every colluded leak (800/800) and on no
-single-source leak (0/200). All 98 correct pairs were the unique minimal pair,
-so the pair-only rule keeps them. The 102 ambiguous 2-centre leaks, which the
-first M5.5 rule refused, are now flagged with nobody named.
+single-source leak (0/200). No verdict names a centre. The two pair columns
+describe only the opt-in hypothesis: all 98 correct pairs were the unique
+minimal pair, and the other 102 2-centre leaks have no unique pair, so
+`--hypotheses` prints none for them.
 
 Before the change, false margins reached 12.0 (random-mixing probe: 5–6% of
 2-centre and 21–38% of 3–5-centre leaks named an innocent). Raw data:
@@ -300,32 +302,92 @@ Before the change, false margins reached 12.0 (random-mixing probe: 5–6% of
 
 - **Thin leaks no longer name a centre.** Single-source identification: 2
   questions 91% → 0% (they carry at most 10 slots), 3 questions 99.5% → 82%, 4+
-  still 100%. The late third (2 questions) can no longer identify on its own.
-- **Named pairs are right for 2-centre leaks and wrong for larger ones.** For 2
-  colluders the named pair was the exact coalition 98 times and never included
-  an outsider. The 11 hypotheses from 3–5-centre leaks that implicated an
-  outsider were **all pairs**, not larger sets, so the pair-only rule still names
-  them: named-pair precision is 98/109 on this bench. Across crops 1–8 (floor
-  sweep), pairs with an outsider appear only at 11–23 slots read (75 among 2,315
-  multi-source results at >= 11 reads) and never at 24 or more. **Open decision
-  for the owner:** keep naming pairs, name nobody, or require more evidence.
+  still 100%. For 2 questions this is a capacity bound, not a tuning shortfall
+  (see below).
 - **Measured, not proved.** Sample paper, 1,000 centres, one reader. The only
   proved collusion bound remains the provable mode (Tardos).
 - The existing 12-line-leak tests pass at exactly 11 slots read, right on the
   floor.
 
+### Named pair demoted to an opt-in hypothesis (review, 2026-10-16)
+
+The second revision of M5.5 attached the unique minimal pair to the
+`MULTI_SOURCE_SUSPECTED` verdict. That pair is now **out of the verdict**, and
+the outcome names nobody. The computation survives as `unique_pair_hypothesis()`
+in `examfp/decode/score.py`, and only `trace --hypotheses` runs it. When it finds
+a pair, the trace prints the pair with its measured accuracy (98 correct of 109,
+every wrong one from a leak involving 3 or more centres). It also states that
+the system cannot distinguish a two-centre leak from a larger one, so either
+named centre may have taken no part.
+
+**Why it was demoted.** All 11 wrong pairs came from leaks involving 3–5
+centres (8, 1 and 2 respectively), and every one of them was a *pair*. Refusing
+to name sets of 3 or more therefore removed none of them. A unique pair is wrong
+exactly when the leak involved more centres than the pair, and nothing in the
+observation separates that case from a genuine two-centre leak. No rule can
+filter that risk out; the output can only disclose it. So the pair is shown only
+on request, and always with the measured error.
+
+The printed 98/109 lives in `PAIR_HYPOTHESIS_CORRECT` and `PAIR_HYPOTHESIS_NAMED`.
+`tests/eval/test_bench.py::test_printed_pair_accuracy_matches_the_benchmark`
+reruns the benchmark (seed 2) and fails if the measured counts drift from the
+printed ones.
+
+**Verdict text.** `MULTI_SOURCE_SUSPECTED` used to read as an assertion of
+collusion. It now says that no single centre in this codebook explains the
+observed slots. It lists three possible causes: (1) the leak combines papers from
+more than one centre; (2) misreads beyond the gate tolerance; (3) the leak comes
+from a paper outside this codebook. It ends with "No centre is named."
+
+### 2-question leaks: a capacity bound, not a shortfall
+
+Slots carry unequal information, so the natural refinement of the slot floor is
+a floor on bits read (Σ log2 alphabet over the read slots). Bits per question on
+the sample paper are: q1 7.39, q2 8.89, q3 6.39, q4 4.81, q5 8.89, q6 7.39,
+q7 6.81, q8 8.89.
+
+- **The required level is at least 18.59 bits.** Seed 7 produced a false
+  identification at 18.59 bits read (gate on, no floor). A bits floor identifies
+  only strictly above its value, so to exclude that case it must be at least
+  18.59 (`suggest_bits_floor`). The required level is a maximum over the false
+  identifications observed, so more trials can only raise it.
+- **No two questions reach it.** The most informative pair, q2 + q5 (the MCQs),
+  carries **17.79 bits**. That value is exact, not sampled.
+- **So no entropy-based floor can recover 2-question leaks.** The information is
+  not present in the observation. In raw capacity, two questions exceed the
+  log2 1000 ≈ 9.97 bits needed to index 1,000 centres. What they lack is enough
+  information to rule out a hybrid of other centres. Better tuning cannot change
+  that; only a paper that carries more information per question could.
+- **Scope:** the sample paper, 1,000 centres, and the current fuzzy reader. A
+  different paper design or codebook size needs this rechecked.
+
 ### Open items
 
-- **Bits-based floor — measured, not deployed (M11).** Slots carry unequal
-  information (1 bit for a wording toggle, 6.9 for option order), so a floor on
-  bits read (sum of log2 alphabet) is the natural refinement. Measured with
-  `python -m eval.bench`: seed 1 suggests identifying only above 16.29 bits, but
-  seed 7 shows 3 false IDs above that line in 3,056 leaks, so the threshold is
-  unstable; seed 7 alone needs 18.59. **Predicted gain at 18.59 bits:
-  single-source 3-question leaks 80–81% → 90–92%; 2-question leaks no gain
-  (0%)**, because the most informative pair of questions (q2 + q5, the MCQs)
-  carries 17.79 bits. `MIN_READ_SLOTS` stays 11. M11 must stabilise the
-  threshold with far more trials before any adoption.
-- **Naming pairs** — see the open decision above.
+- **Bits-based floor for 3+ questions — measured, not deployed (M11).** Seed 1
+  suggests identifying above 16.29 bits, but seed 7 shows 3 false IDs above that
+  line in 3,056 leaks. The threshold is unstable; seed 7 alone needs 18.59.
+  Predicted gain at 18.59 bits: single-source 3-question leaks 80–81% → 90–92%;
+  2-question leaks stay at 0% (bound above). `MIN_READ_SLOTS` stays 11. M11 must
+  stabilise the threshold with far more trials before any adoption.
+- **Pair accuracy above 24 slots — hypothesis for M11, single seed.** In the
+  floor sweep (seed 1, crops 1–8), `--hypotheses` pairs that included an
+  outsider appeared only at 11–23 slots read: 75 among 2,315 multi-source results
+  at ≥ 11 reads. None appeared at 24 or more. That suggests the pair hypothesis
+  may be reliable on larger leaks, but it is **one seed** and is not used
+  anywhere. M11's sweep must validate it before anyone relies on it.
+- **Rename `MULTI_SOURCE_SUSPECTED` in M7 (proposal).** The outcome means "no
+  single centre in this codebook explains the observed slots", and it has three
+  causes. The name asserts only the first. M7's OCR recalibration will make cause
+  (2), misreads beyond the tolerance, more likely, and M7 touches this code
+  anyway. Rename then, e.g. to `NO_CONSISTENT_SOURCE`. Kept as-is for now to
+  avoid churn across the enum, CLI, bench CSV and CLAUDE.md rule 4.
+- **Contract wording on pairs (owner).** CLAUDE.md rule 4 still allows
+  `MULTI_SOURCE_SUSPECTED` to "name at most one pair". The code is now stricter:
+  verdicts name nobody, and the pair appears only under `--hypotheses`. The rule
+  is still satisfied; whether to tighten it is the owner's call.
+- **Ranked list on multi-source leaks.** The trace still prints the top 5
+  centres by score for every outcome, including `MULTI_SOURCE_SUSPECTED`. It is
+  not a verdict, but a reader could take it as one. Revisit with the rename in
+  M7.
 - **Contract.** *Fixed:* CLAUDE.md now promises a measured false-identification
   rate (practical mode) or a provable collusion bound (provable mode).

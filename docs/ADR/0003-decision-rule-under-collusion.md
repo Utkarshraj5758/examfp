@@ -1,7 +1,7 @@
 # ADR 0003 — Decision rule under collusion: consistency gate, read floor, multi-source signal
 
 - **Status:** Accepted
-- **Date:** 2026-10-16 (M5.5; step 4 revised the same day after review)
+- **Date:** 2026-10-16 (M5.5; step 4 revised twice the same day after review)
 - **Related:** [ADR 0001](0001-two-modes.md) (practical mode has no proved collusion
   bound), [ADR 0002](0002-rs-slot-packing.md) (slot packing)
 
@@ -45,14 +45,26 @@ margin threshold cannot fix that.
 3. **Margin among survivors.** `IDENTIFIED` only if one survivor leads every
    other centre by more than 0.5. Tied survivors give `INSUFFICIENT`.
 4. **Multi-source signal.** If the gate eliminates every centre and the floor
-   is cleared, the outcome is `MULTI_SOURCE_SUSPECTED`: no single centre is
-   consistent with the leak. It names nobody, with one exception: when exactly
-   one *pair* of centres jointly explains every read slot (marking assumption,
-   same tolerance), that pair is attached, worded as a hypothesis for
-   investigation and never an accusation. Sets of three or more are never named.
-   An ambiguous pair, or a search that exhausts its node budget, names nobody.
-   (The first M5.5 version, `COLLUSION_SUSPECTED`, named any unique minimal set
-   of up to 5 centres and refused when the cover was ambiguous.)
+   is cleared, the outcome is `MULTI_SOURCE_SUSPECTED`. **It names nobody.** The
+   verdict states that no single centre in this codebook explains the observed
+   slots and lists three possible causes: the leak combines papers from more
+   than one centre, misreads exceed the gate tolerance, or the leak comes from a
+   paper outside this codebook.
+
+**Pair hypothesis: opt-in, never part of a verdict.** `unique_pair_hypothesis()`
+looks for a pair of centres that jointly explains every read slot (marking
+assumption, same tolerance). It runs only under `trace --hypotheses`. It reports
+a pair only when exactly one pair covers the reads; sets of three or more are
+never reported, and an ambiguous cover or an exhausted node budget reports
+nobody. Any pair is printed together with its measured accuracy (98 correct of
+109 on the M5.5 bench, every wrong one from a leak involving 3 or more centres).
+The output also states that the system cannot distinguish a two-centre leak from
+a larger one.
+
+*History.* The first M5.5 version, `COLLUSION_SUSPECTED`, named any unique
+minimal set of up to 5 centres. The first review restricted the named set to a
+unique pair attached to the verdict. The second review demoted the pair to the
+opt-in hypothesis above, for the reason given under Consequences.
 
 **Calibrated parameters, never assumed:**
 
@@ -85,24 +97,34 @@ and paraphrase in M8–M10 will raise the misread rate):
   slots, below the floor: single-source identification at 2 questions fell from
   91% to 0%, and at 3 questions from 99.5% to 82%. Four or more questions stay
   at 100%.
-- **The multi-source signal is reliable; named pairs are not always.** The signal
-  fired on 800/800 leaks from 2–5 centres and 0/200 single-source leaks. For 2
-  colluders the named pair was the exact coalition 98 times and never an
-  outsider. The 11 hypotheses from 3–5-centre leaks that implicated an outsider
-  were all *pairs*, so restricting names to pairs does not remove them
-  (precision 98/109). A smallest explanation is not necessarily the true
-  coalition. Whether to name pairs at all is an open decision (NOTES.md, M5.5).
+- **The multi-source signal is reliable; the pair is not, so it was demoted.**
+  The signal fired on 800/800 leaks from 2–5 centres and on 0/200 single-source
+  leaks. For 2 colluders the unique pair was the exact coalition 98 times and
+  never included an outsider. All 11 wrong pairs came from leaks involving 3–5
+  centres (8, 1 and 2), and all 11 were *pairs*. Refusing to name sets of 3 or
+  more therefore removed none of them. A pair is wrong exactly when more centres
+  were involved, and the observation cannot tell that case from a genuine
+  two-centre leak. The risk cannot be filtered out, only disclosed. Hence:
+  verdicts name nobody, and the pair appears only on request, with its error
+  rate.
 - **The signal depends on calibration.** Misreads beyond the tolerance, or a
-  leak from outside the codebook, also empty the gate and would read as
-  multi-source. Recalibrating on every reader change (M7) is part of the rule.
+  leak from outside the codebook, also empty the gate. That is why the verdict
+  lists three causes rather than asserting collusion. Recalibrating on every
+  reader change (M7) is part of the rule. The enum name still suggests the first
+  cause only; NOTES.md proposes renaming it in M7.
 - **Empirical, not proved.** These are measured rates on the sample paper with
   1,000 centres. The only proved collusion bound remains the provable mode
   (Tardos, ADR 0001).
 - The floor counts slots, but slots carry unequal information (a 2-variant
   wording slot vs a 119-variant option order). A bits floor was measured but not
   adopted: its threshold moved between seeds (16.29 vs 18.59 bits), and at 18.59
-  it would lift 3-question leaks from about 80% to about 91% while leaving
-  2-question leaks at 0%. M11 revisits it with more trials.
+  it would lift 3-question leaks from about 80% to about 91%. M11 revisits it
+  with more trials.
+- **2-question leaks are a capacity bound.** The most informative question pair
+  carries 17.79 bits, but excluding the observed false identifications needs at
+  least 18.59. More data can only raise that requirement. So no entropy-based
+  floor can recover 2-question leaks: the information needed to rule out a
+  hybrid is not in the observation (sample paper, 1,000 centres).
 
 ## Alternatives considered
 
@@ -118,3 +140,8 @@ and paraphrase in M8–M10 will raise the misread rate):
 - **Name unique minimal sets of 3–5 centres.** Rejected in review: in M5.5 no
   such set was ever the unique minimal explanation, and naming larger sets
   multiplies the chance of implicating an outsider.
+- **Attach the unique pair to the verdict.** Rejected in the second review: 11
+  of 109 such pairs implicated an outsider, all from leaks of 3 or more
+  centres, and nothing observable separates those from genuine two-centre
+  leaks. Kept only as the opt-in `--hypotheses` output, which prints the error
+  rate.

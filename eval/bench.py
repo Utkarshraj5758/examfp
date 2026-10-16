@@ -288,7 +288,7 @@ class FloorRow:
     correct: int
     false_identified: int
     multi_source: int
-    pair_with_innocent: int  # multi-source results whose named pair includes a non-source
+    pair_with_innocent: int  # multi-source results whose hypothesis pair includes a non-source
     refused: int
 
 
@@ -407,9 +407,9 @@ class CollusionRow:
     identified_colluder: int
     identified_innocent: int
     # Pair columns describe the opt-in hypothesis (trace --hypotheses), never a verdict.
-    pair_exact: int  # multi-source, named pair == the coalition
-    pair_partial: int  # multi-source, named pair inside the coalition
-    pair_with_innocent: int  # multi-source, named pair includes a non-colluder
+    pair_exact: int  # multi-source, hypothesis pair == the coalition
+    pair_partial: int  # multi-source, hypothesis pair inside the coalition
+    pair_with_innocent: int  # multi-source, hypothesis pair includes a non-colluder
     multi_source_unnamed: int  # multi-source, nobody named
     insufficient: int
     no_match: int

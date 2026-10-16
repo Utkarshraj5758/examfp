@@ -241,7 +241,7 @@ def verdict_lines(result: ScoreResult) -> list[str]:
 def hypothesis_lines(pair: tuple[int, int] | None) -> list[str]:
     """Wording for the opt-in pair hypothesis (``trace --hypotheses``).
 
-    Guarantees: a named pair is always printed with its measured accuracy, the
+    Guarantees: a reported pair is always printed with its measured accuracy, the
     statement that a two-centre leak cannot be told from a larger one, and the
     statement that it is not an accusation.
     """

@@ -98,18 +98,21 @@ decision rule named innocent centres (5.5% of 2-centre leaks, 47–55% of 3–5)
 **Built:** consistency gate applied before the margin rule; calibrated mismatch
 tolerance (`MISREAD_RATE`, `FALSE_REJECTION_BUDGET`) with a documented
 recalibration procedure; measured read floor (`MIN_READ_SLOTS = 11`); fourth
-outcome `MULTI_SOURCE_SUSPECTED` (whenever the gate empties above the floor; a
-pair is named only when exactly one pair explains the reads, as a hypothesis;
-sets of 3+ never named); `collude()` attack (2–5 centres, minority strategy);
-calibration, floor, bits-floor and collusion rows in `eval/bench.py`; claims
-corrected; ADR 0003.
+outcome `MULTI_SOURCE_SUSPECTED` (whenever the gate empties above the floor; it
+names nobody and lists three possible causes); the unique-pair hypothesis
+demoted to an opt-in `trace --hypotheses`, printed with its measured accuracy
+(98/109); `collude()` attack (2–5 centres, minority strategy); calibration,
+floor, bits-floor and collusion rows in `eval/bench.py`; claims corrected;
+ADR 0003.
 
-**Status:** done (branch `m5.5-consistency-gate`, stacked on M5). 0 innocents
-identified for coalitions of 1–5 after the change; single-source 6-question
-leaks unchanged at 200/200; multi-source flagged on 800/800 colluded leaks and
-0/200 single-source. Cost: leaks of 1–2 questions no longer name a centre. Open:
-named pairs from 3–5-centre leaks include an outsider (11 of 11) — owner to
-decide whether pairs are named at all. Numbers in NOTES.md, M5.5.
+**Status:** done (branch `m5.5-consistency-gate`). 0 innocents identified for
+coalitions of 1–5 after the change; single-source 6-question leaks unchanged at
+200/200; multi-source flagged on 800/800 colluded leaks and 0/200 single-source.
+Cost: leaks of 1–2 questions no longer name a centre. For 2 questions that is a
+capacity bound (17.79 bits available vs ≥ 18.59 needed), not a tuning gap. The
+pair was taken out of the verdict because all 11 wrong pairs came from 3–5-centre
+leaks, which the observation cannot tell apart from 2-centre leaks. Numbers in
+NOTES.md, M5.5.
 
 ---
 
@@ -154,7 +157,9 @@ fuzzy text reader (0 misreads in 104,026 reads). At tolerance 0, a 1% per-slot
 misread rate makes 1 − 0.99¹¹ ≈ 10% of genuine 11-slot leaks fail the gate, and
 those leaks would come back `MULTI_SOURCE_SUSPECTED` or `INSUFFICIENT`. That
 would look like an OCR failure when it is really a gate calibrated for the wrong
-reader.
+reader. While in this code, decide on the proposed rename of
+`MULTI_SOURCE_SUSPECTED` (NOTES.md, M5.5): the outcome has three causes, and
+OCR misreads make the second more likely.
 
 **Build:** `decode/ocr.py` behind an `OcrBackend` protocol with PaddleOCR and
 Tesseract implementations selected by config; normalisation (Unicode forms,
@@ -268,7 +273,11 @@ across noise regimes** (clean, retype, OCR noise, each paraphrase strength):
 for each reader's measured misread rate, the tolerance it implies, the floor
 that keeps innocent identifications at zero, and what that floor costs
 single-source identification. Include the bits-based floor (NOTES.md, M5.5)
-with enough trials to stabilise its threshold.
+with enough trials to stabilise its threshold. **Hypothesis to validate
+(single seed, M5.5):** the `--hypotheses` pair never included an outsider at
+24 or more slots read. All 75 outsider pairs in the seed-1 floor sweep came
+from leaks with 11–23 reads. Sweep pair accuracy against slots read across
+many seeds before anyone relies on it.
 
 **Acceptance:** `.\tasks.ps1 bench` writes `eval/out/results.csv` plus figures;
 false-identification rate reported for every cell and is zero or has a stated

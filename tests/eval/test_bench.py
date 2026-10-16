@@ -115,7 +115,8 @@ def test_floor_sweep_rows_and_suggestion(sample_paper: Paper) -> None:
                            k_values=(1, 4), n_trials=4, seed=0, misread_rate=0.0)
     assert rows == sorted(rows, key=lambda r: r.reads)
     for r in rows:
-        assert r.trials == r.correct + r.false_identified + r.suspected + r.refused
+        assert r.trials == r.correct + r.false_identified + r.multi_source + r.refused
+        assert r.pair_with_innocent <= r.multi_source
     fake = [FloorRow(3, 5, 0, 1, 0, 0, 4), FloorRow(9, 5, 4, 0, 0, 0, 1),
             FloorRow(7, 5, 2, 2, 0, 0, 1)]
     assert suggest_floor(fake) == 8  # one above the most reads at which an innocent was named
@@ -131,8 +132,9 @@ def test_collusion_bench_before_and_after(sample_paper: Paper) -> None:
         ("before", 1), ("after", 1), ("before", 2), ("after", 2)]
     for r in rows:
         assert isinstance(r, CollusionRow)
-        assert r.trials == (r.identified_colluder + r.identified_innocent + r.suspected_exact
-                            + r.suspected_partial + r.suspected_with_innocent + r.insufficient
-                            + r.no_match)
+        assert r.trials == (r.identified_colluder + r.identified_innocent
+                            + r.pair_exact + r.pair_partial + r.pair_with_innocent
+                            + r.multi_source_unnamed + r.insufficient + r.no_match)
         if r.rule == "before":
-            assert r.suspected_exact == r.suspected_partial == r.suspected_with_innocent == 0
+            assert r.pair_exact == r.pair_partial == r.pair_with_innocent == 0
+            assert r.multi_source_unnamed == 0  # the old rule had no such outcome

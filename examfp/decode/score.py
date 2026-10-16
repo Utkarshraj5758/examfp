@@ -13,10 +13,17 @@ matrix). The score ranks; it does not decide. The decision runs in this order:
    ``min_read_slots`` read slots; thin leaks match innocents by chance.
 3. **Margin among survivors.** ``IDENTIFIED`` only when one surviving centre
    is ahead of every other centre by more than ``MARGIN_THRESHOLD``.
-4. **Collusion hypothesis.** If no single centre survives but a unique smallest
-   set of centres jointly explains every read slot (marking assumption), the
-   outcome is ``COLLUSION_SUSPECTED`` with that set. It is **a hypothesis for
-   investigation, never an accusation** of any centre in it.
+4. **Multi-source signal.** If the gate eliminates every centre and the read
+   floor is cleared, the outcome is ``MULTI_SOURCE_SUSPECTED``: no single
+   centre is consistent with the leak. It names nobody, except that when exactly
+   one *pair* of centres jointly explains every read slot (marking assumption)
+   the pair is attached as **a hypothesis for investigation, never an
+   accusation**. Sets of three or more are never named: in M5.5 every such set
+   observed (11 of 11) implicated an uninvolved centre.
+
+   The signal assumes ``tolerance`` matches the reader. Misreads beyond it, or a
+   leak from outside this codebook, also empty the gate - hence recalibration on
+   every reader change (ADR 0003).
 
 Why the gate exists: the slot score measures a different distance from the one
 Reed-Solomon protects (symbols). Under collusion, a hybrid leak can sit nearer
@@ -58,14 +65,16 @@ FALSE_REJECTION_BUDGET = 1e-3
 # slots read (seeds 1 and 7) and never from 11 up - 0 in 5,804 leaks, 95% upper
 # bound 0.052%. Sample paper, 1,000 centres; re-measure for other operating points.
 MIN_READ_SLOTS = 11
-# Largest coalition the collusion hypothesis may name, and the search budget.
-MAX_EXPLAINING_SET = 5
+# A multi-source result may name a pair, never a larger set (M5.5: every set of
+# 3+ observed implicated an uninvolved centre). Budget for the pair search; an
+# exhausted search names nobody.
+NAMED_SET_SIZE = 2
 COVER_NODE_BUDGET = 20_000
 
 
 class Outcome(StrEnum):
     IDENTIFIED = "IDENTIFIED"
-    COLLUSION_SUSPECTED = "COLLUSION_SUSPECTED"  # a hypothesis, never an accusation
+    MULTI_SOURCE_SUSPECTED = "MULTI_SOURCE_SUSPECTED"  # names nobody but a hypothesis pair
     INSUFFICIENT = "INSUFFICIENT"
     NO_MATCH = "NO_MATCH"
 
@@ -76,7 +85,9 @@ class ScoreResult:
 
     ``ranked`` lists the consistent centres first (by score), then the rest; when
     the outcome is ``IDENTIFIED`` the named centre is ``ranked[0][0]``.
-    ``explaining_set`` is non-empty only for ``COLLUSION_SUSPECTED``.
+    ``named_pair`` holds exactly two centre ids, and only for
+    ``MULTI_SOURCE_SUSPECTED`` when one pair uniquely explains the reads;
+    otherwise it is empty. It is a hypothesis, never an accusation.
     """
 
     ranked: list[tuple[int, float]]
@@ -85,7 +96,7 @@ class ScoreResult:
     outcome: Outcome
     consistent: int = 0
     tolerance: int = 0
-    explaining_set: tuple[int, ...] = ()
+    named_pair: tuple[int, ...] = ()
 
 
 class _Stop(Exception):
@@ -172,18 +183,17 @@ def score(
     misread_rate: float = MISREAD_RATE,
     false_rejection_budget: float = FALSE_REJECTION_BUDGET,
     min_read_slots: int = MIN_READ_SLOTS,
-    max_explaining_set: int = MAX_EXPLAINING_SET,
     cover_node_budget: int = COVER_NODE_BUDGET,
 ) -> ScoreResult:
     """Rank centres against ``observations`` and decide an :class:`Outcome`.
 
     Guarantees: ``IDENTIFIED`` only for a centre that passes the consistency gate,
     on at least ``min_read_slots`` reads, ahead of every other centre by more than
-    ``MARGIN_THRESHOLD``; ``COLLUSION_SUSPECTED`` only when no single centre
-    passes and exactly one smallest set (at most ``max_explaining_set`` centres)
-    explains the reads; otherwise ``INSUFFICIENT`` (or ``NO_MATCH`` with no
-    reads). Never a best guess. Keyword arguments exist for calibration and
-    tests; production uses the calibrated defaults.
+    ``MARGIN_THRESHOLD``; ``MULTI_SOURCE_SUSPECTED`` whenever no centre passes
+    the gate and the floor is met, with ``named_pair`` set only when exactly one
+    pair explains the reads; otherwise ``INSUFFICIENT`` (or ``NO_MATCH`` with no
+    reads). Never a best guess, never a named set of three or more. Keyword
+    arguments exist for calibration and tests; production uses the defaults.
     """
     positions = list(observations)
     if not positions or not codebook:
@@ -207,14 +217,13 @@ def score(
     floor_met = reads >= min_read_slots
 
     if n_consistent == 0:
-        outcome = Outcome.INSUFFICIENT
-        explaining: tuple[int, ...] = ()
-        if floor_met:
-            covers = _minimal_covers(match, tolerance, max_explaining_set, cover_node_budget)
-            if covers is not None and len(covers) == 1:
-                outcome = Outcome.COLLUSION_SUSPECTED
-                explaining = tuple(sorted(centres[i] for i in covers[0]))
-        return ScoreResult(ranked, 0.0, reads, outcome, 0, tolerance, explaining)
+        if not floor_met:
+            return ScoreResult(ranked, 0.0, reads, Outcome.INSUFFICIENT, 0, tolerance)
+        pair: tuple[int, ...] = ()
+        pairs = _minimal_covers(match, tolerance, NAMED_SET_SIZE, cover_node_budget)
+        if pairs is not None and len(pairs) == 1 and len(pairs[0]) == NAMED_SET_SIZE:
+            pair = tuple(sorted(centres[i] for i in pairs[0]))
+        return ScoreResult(ranked, 0.0, reads, Outcome.MULTI_SOURCE_SUSPECTED, 0, tolerance, pair)
 
     top = float(scores[order[0]])
     runner_up = float(scores[order[1]]) if len(order) > 1 else float("-inf")

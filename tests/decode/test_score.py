@@ -96,29 +96,50 @@ def test_gate_runs_before_margin_and_never_names_the_nearest_innocent() -> None:
     assert result.consistent == 0  # nobody explains all ten slots
 
 
-def test_unique_minimal_covering_set_is_reported_as_a_hypothesis() -> None:
+def test_emptied_gate_above_the_floor_is_multi_source() -> None:
     result = score(HYBRID, TOY, **STRICT)
-    assert result.outcome is Outcome.COLLUSION_SUSPECTED
-    assert result.explaining_set == (A, B)  # INNOCENT cannot help explain p4 or p9 in a pair
+    assert result.outcome is Outcome.MULTI_SOURCE_SUSPECTED
 
 
-def test_ambiguous_minimal_cover_is_insufficient() -> None:
-    # Make INNOCENT explain p4: now {A, B} and {INNOCENT, B} both cover -> no unique hypothesis.
+def test_unique_minimal_pair_is_named() -> None:
+    result = score(HYBRID, TOY, **STRICT)
+    assert result.named_pair == (A, B)  # INNOCENT cannot help explain p4 or p9 in a pair
+
+
+def test_ambiguous_pair_is_multi_source_with_nobody_named() -> None:
+    # Make INNOCENT explain p4: now {A, B} and {INNOCENT, B} both cover the reads.
     toy = dict(TOY)
     toy[INNOCENT] = {**TOY[INNOCENT], P[4]: 0}
     result = score(HYBRID, toy, **STRICT)
-    assert result.outcome is Outcome.INSUFFICIENT
-    assert result.explaining_set == ()
+    assert result.outcome is Outcome.MULTI_SOURCE_SUSPECTED
+    assert result.named_pair == ()
 
 
-def test_collusion_hypothesis_respects_the_read_floor() -> None:
+def test_three_source_hybrid_names_no_set() -> None:
+    # p0-p2 from A, p3-p5 from B, p6-p8 from C: only a triple explains the reads.
+    q = [("q", f"t{i}") for i in range(9)]
+    toy = {
+        1: {x: 0 for x in q},
+        2: {x: 1 for x in q},
+        3: {x: 2 for x in q},
+        **{c: {x: 9 for x in q} for c in range(10, 30)},
+    }
+    hybrid = {x: (i // 3, 1.0) for i, x in enumerate(q)}
+    result = score(hybrid, toy, **STRICT)
+    assert result.outcome is Outcome.MULTI_SOURCE_SUSPECTED
+    assert result.named_pair == ()  # sets of three or more are never named
+
+
+def test_multi_source_needs_the_read_floor() -> None:
     result = score(HYBRID, TOY, misread_rate=0.0, min_read_slots=11)
     assert result.outcome is Outcome.INSUFFICIENT
+    assert result.named_pair == ()
 
 
-def test_cover_search_never_reports_a_partial_result() -> None:
+def test_exhausted_pair_search_names_nobody() -> None:
     result = score(HYBRID, TOY, **STRICT, cover_node_budget=1)
-    assert result.outcome is Outcome.INSUFFICIENT  # budget exhausted -> refuse
+    assert result.outcome is Outcome.MULTI_SOURCE_SUSPECTED  # the signal does not need the search
+    assert result.named_pair == ()  # never a partial or unverified name
 
 
 def test_single_source_leak_is_identified() -> None:
@@ -126,7 +147,7 @@ def test_single_source_leak_is_identified() -> None:
     result = score(leak, TOY, **STRICT)
     assert result.outcome is Outcome.IDENTIFIED
     assert result.ranked[0][0] == A and result.consistent == 1
-    assert result.explaining_set == ()
+    assert result.named_pair == ()
 
 
 def test_read_floor_blocks_identification_on_thin_leaks() -> None:

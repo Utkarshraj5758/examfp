@@ -197,7 +197,8 @@ def test_demo_refuses_a_stale_codebook(tmp_path: Path, monkeypatch) -> None:  # 
 
 
 # --- M5.5: collusion hypothesis wording --------------------------------------------------------
-def test_trace_reports_collusion_as_a_hypothesis_never_an_accusation(tmp_path: Path) -> None:
+def _collusion_trace(tmp_path: Path, size: int, wanted: str) -> tuple[str, list[int]]:
+    """Trace full-paper hybrids of `size` centres until the output contains `wanted`."""
     import random
 
     from examfp.attacks import collude
@@ -210,22 +211,39 @@ def test_trace_reports_collusion_as_a_hypothesis_never_an_accusation(tmp_path: P
     runner.invoke(app, ["generate", SAMPLE, "--centres", "1000", "--out", str(out)])
     book = assign(paper, 1000, seed=0)
     leak = tmp_path / "leak.txt"
-    for seed in range(20):  # a 2-centre hybrid of the full paper usually yields a hypothesis
+    for seed in range(30):
         rng = random.Random(seed)
-        pair = rng.sample(range(1000), 2)
-        leak.write_text(render_text(paper, collude([book[c] for c in pair], rng)), encoding="utf-8")
+        group = rng.sample(range(1000), size)
+        leak.write_text(render_text(paper, collude([book[c] for c in group], rng)),
+                        encoding="utf-8")
         result = runner.invoke(
             app, ["trace", str(leak), "--codebook", str(out / "codebook.json"), "--paper", SAMPLE]
         )
-        if "COLLUSION_SUSPECTED" in result.output:
-            break
-    else:
-        raise AssertionError("no seed produced a collusion hypothesis")
-    text = result.output.lower()
-    assert "hypothesis" in text and "not an accusation" in text
-    for word in ("accused", "guilty", "leaked by", "identified centre"):
+        if wanted in result.output:
+            return result.output, group
+    raise AssertionError(f"no seed produced {wanted!r}")
+
+
+def _no_accusation(output: str) -> None:
+    text = output.lower()
+    for word in ("accused", "guilty", "leaked by", "identified -"):
         assert word not in text
-    assert all(str(c) in result.output for c in pair)
+
+
+def test_trace_names_a_pair_only_as_a_hypothesis(tmp_path: Path) -> None:
+    output, pair = _collusion_trace(tmp_path, 2, "Exactly one pair")
+    assert "MULTI_SOURCE_SUSPECTED" in output
+    assert "hypothesis" in output and "not an accusation" in output
+    assert f"{{{min(pair)}, {max(pair)}}}" in output
+    _no_accusation(output)
+
+
+def test_trace_never_names_three_or_more(tmp_path: Path) -> None:
+    output, _group = _collusion_trace(tmp_path, 3, "MULTI_SOURCE_SUSPECTED")
+    verdict = output[output.index("verdict:"):]
+    assert "No centre is named" in verdict or "Exactly one pair" in verdict
+    assert verdict.count("{") <= 1  # at most one named set, and it is a pair
+    _no_accusation(output)
 
 
 def test_trace_shows_gate_evidence(tmp_path: Path) -> None:

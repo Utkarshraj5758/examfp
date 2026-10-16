@@ -285,8 +285,8 @@ class FloorRow:
     trials: int
     correct: int
     false_identified: int
-    suspected: int
-    suspected_with_innocent: int
+    multi_source: int
+    pair_with_innocent: int  # multi-source results whose named pair includes a non-source
     refused: int
 
 
@@ -313,9 +313,9 @@ def run_floor_sweep(
                 cell[0] += 1
                 if result.outcome is Outcome.IDENTIFIED:
                     cell[1 if result.ranked[0][0] in sources else 2] += 1
-                elif result.outcome is Outcome.COLLUSION_SUSPECTED:
+                elif result.outcome is Outcome.MULTI_SOURCE_SUSPECTED:
                     cell[3] += 1
-                    cell[4] += any(c not in sources for c in result.explaining_set)
+                    cell[4] += any(c not in sources for c in result.named_pair)
                 else:
                     cell[5] += 1
     return [FloorRow(r, *cell) for r, cell in sorted(tally.items())]
@@ -334,9 +334,10 @@ class CollusionRow:
     trials: int
     identified_colluder: int
     identified_innocent: int
-    suspected_exact: int
-    suspected_partial: int
-    suspected_with_innocent: int
+    pair_exact: int  # multi-source, named pair == the coalition
+    pair_partial: int  # multi-source, named pair inside the coalition
+    pair_with_innocent: int  # multi-source, named pair includes a non-colluder
+    multi_source_unnamed: int  # multi-source, nobody named
     insufficient: int
     no_match: int
     mean_reads: float
@@ -345,11 +346,13 @@ class CollusionRow:
 def _classify(result: ScoreResult, sources: list[int]) -> str:
     if result.outcome is Outcome.IDENTIFIED:
         return "identified_colluder" if result.ranked[0][0] in sources else "identified_innocent"
-    if result.outcome is Outcome.COLLUSION_SUSPECTED:
-        named = set(result.explaining_set)
+    if result.outcome is Outcome.MULTI_SOURCE_SUSPECTED:
+        named = set(result.named_pair)
+        if not named:
+            return "multi_source_unnamed"
         if not named <= set(sources):
-            return "suspected_with_innocent"
-        return "suspected_exact" if named == set(sources) else "suspected_partial"
+            return "pair_with_innocent"
+        return "pair_exact" if named == set(sources) else "pair_partial"
     return "insufficient" if result.outcome is Outcome.INSUFFICIENT else "no_match"
 
 
@@ -383,32 +386,35 @@ def run_collusion_bench(
             c = counts[rule]
             rows.append(CollusionRow(
                 rule, size, n_trials, c.get("identified_colluder", 0),
-                c.get("identified_innocent", 0), c.get("suspected_exact", 0),
-                c.get("suspected_partial", 0), c.get("suspected_with_innocent", 0),
-                c.get("insufficient", 0), c.get("no_match", 0), reads / n_trials,
+                c.get("identified_innocent", 0), c.get("pair_exact", 0),
+                c.get("pair_partial", 0), c.get("pair_with_innocent", 0),
+                c.get("multi_source_unnamed", 0), c.get("insufficient", 0),
+                c.get("no_match", 0), reads / n_trials,
             ))
     return rows
 
 
 def format_floor_table(rows: Sequence[FloorRow]) -> str:
     header = (f"{'reads':>5} {'trials':>6} {'correct':>7} {'FALSE-ID':>8} "
-              f"{'suspected':>9} {'susp+innocent':>13} {'refused':>7}")
+              f"{'multi-src':>9} {'pair+innocent':>13} {'refused':>7}")
     lines = [header, "-" * len(header)]
     for r in rows:
         lines.append(f"{r.reads:>5} {r.trials:>6} {r.correct:>7} {r.false_identified:>8} "
-                     f"{r.suspected:>9} {r.suspected_with_innocent:>13} {r.refused:>7}")
+                     f"{r.multi_source:>9} {r.pair_with_innocent:>13} {r.refused:>7}")
     return "\n".join(lines)
 
 
 def format_collusion_table(rows: Sequence[CollusionRow]) -> str:
     header = (f"{'rule':<6} {'c':>2} {'trials':>6} {'id-colluder':>11} {'ID-INNOCENT':>11} "
-              f"{'susp=coal':>9} {'susp<coal':>9} {'susp+inn':>8} {'insuff':>6} {'nomatch':>7}")
+              f"{'pair=coal':>9} {'pair<coal':>9} {'pair+inn':>8} {'unnamed':>7} "
+              f"{'insuff':>6} {'nomatch':>7}")
     lines = [header, "-" * len(header)]
     for r in rows:
         lines.append(
             f"{r.rule:<6} {r.coalition:>2} {r.trials:>6} {r.identified_colluder:>11} "
-            f"{r.identified_innocent:>11} {r.suspected_exact:>9} {r.suspected_partial:>9} "
-            f"{r.suspected_with_innocent:>8} {r.insufficient:>6} {r.no_match:>7}"
+            f"{r.identified_innocent:>11} {r.pair_exact:>9} {r.pair_partial:>9} "
+            f"{r.pair_with_innocent:>8} {r.multi_source_unnamed:>7} {r.insufficient:>6} "
+            f"{r.no_match:>7}"
         )
     return "\n".join(lines)
 

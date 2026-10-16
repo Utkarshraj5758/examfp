@@ -191,23 +191,30 @@ def trace(
 def verdict_lines(result: ScoreResult) -> list[str]:
     """Plain-language verdict. A collusion result is worded as a hypothesis only.
 
-    Guarantees: only ``IDENTIFIED`` names a single centre as the source; the
-    ``COLLUSION_SUSPECTED`` text always states it is a hypothesis and not an
-    accusation, and that the set may include centres that took no part.
+    Guarantees: only ``IDENTIFIED`` names a single centre as the source. A
+    ``MULTI_SOURCE_SUSPECTED`` text names at most a pair, always as a hypothesis
+    and never an accusation, and never a set of three or more.
     """
     if result.outcome is Outcome.IDENTIFIED:
         return [
             f"verdict: IDENTIFIED - centre {result.ranked[0][0]} is the only centre "
             f"consistent with every slot read (margin {result.margin:.2f})."
         ]
-    if result.outcome is Outcome.COLLUSION_SUSPECTED:
-        names = ", ".join(str(c) for c in result.explaining_set)
-        return [
-            "verdict: COLLUSION_SUSPECTED - no single centre is consistent with the slots read.",
-            f"  The slots are jointly consistent with centres {{{names}}}.",
-            "  This is a hypothesis for investigation, not an accusation of any centre;",
-            "  the set may include centres that took no part.",
+    if result.outcome is Outcome.MULTI_SOURCE_SUSPECTED:
+        lines = [
+            "verdict: MULTI_SOURCE_SUSPECTED - no single centre is consistent with the "
+            "slots read;",
+            "  the leak most likely combines papers from more than one centre.",
         ]
+        if result.named_pair:
+            a, b = result.named_pair
+            lines += [
+                f"  Exactly one pair of centres, {{{a}, {b}}}, jointly explains the slots read.",
+                "  This is a hypothesis for investigation, not an accusation of either centre.",
+            ]
+        else:
+            lines.append("  No centre is named: no single pair uniquely explains the slots read.")
+        return lines
     if result.outcome is Outcome.INSUFFICIENT:
         return ["verdict: INSUFFICIENT - the evidence does not single out any centre."]
     return ["verdict: NO_MATCH - nothing in the text matched the paper."]

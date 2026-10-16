@@ -212,7 +212,7 @@ def build_dashboard(data: DashboardData) -> str:
       </table>
       <p class="note">false-id% here covers single-source leaks only. Leaks combined
         from several centres are measured separately (NOTES.md, M5.5): in that
-        benchmark the decision rule named no innocent centre (0 of 800 colluded
+        benchmark the decision rule identified no innocent centre (0 of 800 colluded
         leaks), at the cost of refusing more often. Measured, not proved.</p>
     </div>
   </div>

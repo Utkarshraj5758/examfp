@@ -202,9 +202,12 @@ def verdict_lines(result: ScoreResult) -> list[str]:
         ]
     if result.outcome is Outcome.MULTI_SOURCE_SUSPECTED:
         lines = [
-            "verdict: MULTI_SOURCE_SUSPECTED - no single centre is consistent with the "
-            "slots read;",
-            "  the leak most likely combines papers from more than one centre.",
+            "verdict: MULTI_SOURCE_SUSPECTED - no single centre in this codebook explains "
+            "the observed slots.",
+            "  Possible causes: (1) the leak combines papers from more than one centre;",
+            "  (2) misreads beyond the gate tolerance "
+            f"({result.tolerance} mismatching slots);",
+            "  (3) the leak comes from a paper outside this codebook.",
         ]
         if result.named_pair:
             a, b = result.named_pair
@@ -213,7 +216,7 @@ def verdict_lines(result: ScoreResult) -> list[str]:
                 "  This is a hypothesis for investigation, not an accusation of either centre.",
             ]
         else:
-            lines.append("  No centre is named: no single pair uniquely explains the slots read.")
+            lines.append("  No centre is named.")
         return lines
     if result.outcome is Outcome.INSUFFICIENT:
         return ["verdict: INSUFFICIENT - the evidence does not single out any centre."]

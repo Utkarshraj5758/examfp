@@ -257,3 +257,18 @@ def test_trace_shows_gate_evidence(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "consistent centres: 1" in result.output
     assert "read floor" in result.output
+
+
+def test_multi_source_verdict_lists_causes_and_asserts_no_collusion() -> None:
+    from examfp.cli import verdict_lines
+    from examfp.decode.score import Outcome, ScoreResult
+
+    result = ScoreResult(ranked=[(5, 1.0)], margin=0.0, positions_used=20,
+                         outcome=Outcome.MULTI_SOURCE_SUSPECTED, consistent=0, tolerance=0)
+    text = "\n".join(verdict_lines(result))
+    assert "no single centre in this codebook explains the observed slots" in text
+    assert "more than one centre" in text  # cause 1: multiple sources
+    assert "misreads beyond the gate tolerance (0 mismatching slots)" in text  # cause 2
+    assert "outside this codebook" in text  # cause 3
+    assert "most likely" not in text  # it must not assert collusion
+    assert "No centre is named." in text

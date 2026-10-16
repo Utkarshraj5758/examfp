@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from examfp.fairness.nli import CrossEncoderNli, check_entailment, nli_model_dir
-from examfp.fairness.pins import NLI_MODEL_REVISION, nli_model_version
+from examfp.fairness.pins import NLI_MODEL_REVISION, NliPin, nli_model_version
 
 
 class FixedNli:
@@ -67,6 +67,16 @@ def test_model_dir_names_the_pinned_revision(tmp_path: Path) -> None:
     path = nli_model_dir(tmp_path)
     assert path.parent.parent == tmp_path
     assert path.name == NLI_MODEL_REVISION
+
+
+def test_another_pin_records_its_own_version_and_directory(tmp_path: Path) -> None:
+    other = NliPin("other", "org/other-nli", "0" * 40, ("config.json", "model.safetensors"))
+    backend = CrossEncoderNli(nli_model_dir(tmp_path, other), other)
+    assert backend.model_dir == tmp_path / "other-nli" / ("0" * 40)
+    assert backend.version == "org/other-nli@" + "0" * 40 != nli_model_version()
+    with pytest.raises(FileNotFoundError, match="fetch-models --model other"):
+        backend.entailment("a", "b")
+    assert not backend.loaded
 
 
 def test_importing_the_nli_module_does_not_import_torch_or_transformers() -> None:

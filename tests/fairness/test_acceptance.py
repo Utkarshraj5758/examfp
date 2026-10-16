@@ -23,7 +23,6 @@ import pytest
 
 from examfp.fairness.check import FairnessChecker, FairnessReport
 from examfp.fairness.nli import CrossEncoderNli
-from examfp.fairness.pins import nli_model_version
 from examfp.fairness.readability import wordfreq_zipf
 from examfp.models import Paper
 from tests.fairness.support import ROOT, VIOLATION_CHECKS
@@ -53,15 +52,15 @@ def _false_rejections(reports: list[tuple[dict[str, Any], FairnessReport]]) -> s
     return {e["id"] for e, r in reports if e["fair"] and not r.passed}
 
 
-def test_no_false_acceptances(fixture_reports: list[tuple[dict[str, Any], FairnessReport]]
-                              ) -> None:
+def test_no_false_acceptances(fixture_reports: list[tuple[dict[str, Any], FairnessReport]],
+                              local_nli: CrossEncoderNli) -> None:
     for entry, report in fixture_reports:
         if not entry["fair"]:
             assert not report.passed, entry["id"]
             # Each unfair entry fails exactly the rule on its label.
             assert report.failed <= VIOLATION_CHECKS[entry["violation"]], (entry["id"], report)
         if report.nli_version is not None:
-            assert report.nli_version == nli_model_version()
+            assert report.nli_version == local_nli.version
 
 
 def test_false_rejections_are_the_recorded_ones(
@@ -82,7 +81,7 @@ def test_false_rejections_within_budget(
 
 
 def test_model_loads_lazily_and_scores_a_pair_under_300_ms(local_nli: CrossEncoderNli) -> None:
-    fresh = CrossEncoderNli(local_nli.model_dir)
+    fresh = CrossEncoderNli(local_nli.model_dir, local_nli.pin)
     assert not fresh.loaded
     premise = "A school has 400 students.\nCalculate 15% of them. Show your working."
     hypothesis = "A school has 400 students.\nFind 15% of them. Show your working."

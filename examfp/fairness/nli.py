@@ -4,8 +4,9 @@ A wording variant asks the same question as its reference only if each text
 entails the other. :func:`check_entailment` scores both directions with an
 :class:`NliBackend` and requires both to reach a configurable threshold.
 
-:class:`CrossEncoderNli` wraps ``cross-encoder/nli-deberta-v3-small`` at the
-revision pinned in :mod:`examfp.fairness.pins`. It loads lazily, on the first
+:class:`CrossEncoderNli` wraps a cross-encoder pinned in
+:mod:`examfp.fairness.pins` (by default :data:`~examfp.fairness.pins.NLI_PIN`,
+``cross-encoder/nli-deberta-v3-small``). It loads lazily, on the first
 pair it scores, from local files only (CLAUDE.md, non-negotiable 8), and keeps
 the loaded model on the instance: no module-level cache, no global state.
 Importing this module imports neither torch nor transformers.
@@ -20,7 +21,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Protocol
 
-from examfp.fairness.pins import NLI_MODEL_FILES, nli_model_subdir, nli_model_version
+from examfp.fairness.pins import NLI_PIN, NliPin
 
 Check = tuple[bool, str]
 
@@ -36,38 +37,40 @@ class NliBackend(Protocol):
     def entailment(self, premise: str, hypothesis: str) -> float: ...
 
 
-def nli_model_dir(cache: Path) -> Path:
-    """Directory of the pinned model inside the local model ``cache``."""
-    return cache.joinpath(*nli_model_subdir().parts)
+def nli_model_dir(cache: Path, pin: NliPin = NLI_PIN) -> Path:
+    """Directory of the pinned model ``pin`` inside the local model ``cache``."""
+    return cache.joinpath(*pin.subdir.parts)
 
 
 class CrossEncoderNli:
-    """The pinned cross-encoder, loaded lazily from local files and kept on the instance.
+    """A pinned cross-encoder, loaded lazily from local files and kept on the instance.
 
     Invariant: constructing it touches neither the disk nor torch; the first call
-    to :meth:`entailment` loads the model, and every later call reuses it.
+    to :meth:`entailment` loads the model, and every later call reuses it. The
+    recorded :attr:`version` is always ``pin``'s, the model the files belong to.
     """
 
-    def __init__(self, model_dir: Path) -> None:
+    def __init__(self, model_dir: Path, pin: NliPin = NLI_PIN) -> None:
         self.model_dir = model_dir
+        self.pin = pin
         self._model: Any = None
         self._tokenizer: Any = None
         self._entailment_index = -1
 
     @property
     def version(self) -> str:
-        return nli_model_version()
+        return self.pin.version
 
     @property
     def loaded(self) -> bool:
         return self._model is not None
 
     def _load(self) -> None:
-        missing = [name for name in NLI_MODEL_FILES if not (self.model_dir / name).is_file()]
+        missing = [name for name in self.pin.files if not (self.model_dir / name).is_file()]
         if missing:
             raise FileNotFoundError(
-                f"NLI model files missing from {self.model_dir}: {', '.join(missing)}. "
-                "Fetch the pinned revision with `.\\tasks.ps1 fetch-models`."
+                f"NLI model files missing from {self.model_dir}: {', '.join(missing)}. Fetch "
+                f"the pinned revision with `.\\tasks.ps1 fetch-models --model {self.pin.key}`."
             )
         from transformers import AutoModelForSequenceClassification, AutoTokenizer
 

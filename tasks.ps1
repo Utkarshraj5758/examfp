@@ -86,16 +86,20 @@ switch ($Task.ToLower()) {
 
     "fetch-models" {
         Use-Venv
-        Invoke-Step "fetch the pinned NLI model into models\" { python -m ml.fetch_models @Rest }
+        Invoke-Step "fetch a pinned NLI model into models\" { python -m ml.fetch_models @Rest }
     }
 
     "fairness" {
         # M6 acceptance with the real NLI model. A missing model or extra FAILS
         # here (a plain test run only skips), so this cannot pass vacuously.
+        # $env:TRACE_NLI_MODEL = "<key>" runs it with another model pinned in
+        # examfp\fairness\pins.py; unset, with the checker's own model.
         Use-Venv
         $env:TRACE_REQUIRE_LOCAL_MODEL = "1"
+        $model = @()
+        if ($env:TRACE_NLI_MODEL) { $model = @("--model", $env:TRACE_NLI_MODEL) }
         Invoke-Step "fairness acceptance (local model)" { python -m pytest -q -rxX -m local_model tests\fairness @Rest }
-        Invoke-Step "NLI reliability (held-out set, fixture agreement)" { python -m eval.nli_reliability }
+        Invoke-Step "NLI reliability (held-out set, fixture agreement)" { python -m eval.nli_reliability @model }
     }
 
     "train" {
@@ -148,7 +152,7 @@ TRACE task runner
   .\tasks.ps1 demo       end-to-end CLI demo
   .\tasks.ps1 dashboard  static HTML dashboard -> out\dashboard.html
   .\tasks.ps1 bench      evaluation sweeps -> eval\out\
-  .\tasks.ps1 fetch-models  download the pinned NLI model -> models\
+  .\tasks.ps1 fetch-models  download a pinned NLI model -> models\ (--model KEY)
   .\tasks.ps1 fairness   M6 acceptance + NLI reliability (needs the model)
   .\tasks.ps1 train      fine-tune the neural decoder
   .\tasks.ps1 up         docker compose up (api, worker, db, web)

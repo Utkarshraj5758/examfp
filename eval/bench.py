@@ -33,6 +33,7 @@ import random
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import astuple, dataclass, fields
+from math import log2
 from pathlib import Path
 
 from eval.baselines import mixed_radix_assign, score_ungated
@@ -290,6 +291,72 @@ class FloorRow:
     refused: int
 
 
+@dataclass(frozen=True)
+class FloorTrial:
+    """One leak of the floor sweep, before any floor: what the gate decided."""
+
+    size: int  # 1 = single source, 2+ = colluded
+    k: int  # questions kept by the crop
+    reads: int
+    bits: float  # sum of log2(alphabet) over the slots read
+    kind: str  # correct | false | multi_source | multi_source_pair_innocent | refused
+
+
+def bits_read(paper: Paper, observed: Mapping[tuple[str, str], tuple[int, float]]) -> float:
+    """Information read, in bits: ``sum(log2(alphabet))`` over the positions read."""
+    alphabets = paper.alphabets()
+    return sum(log2(alphabets[p]) for p in observed)
+
+
+def floor_trials(
+    paper: Paper,
+    codebook: Codebook,
+    sizes: Iterable[int] = (1, 2, 3, 4, 5),
+    k_values: Iterable[int] = range(1, 9),
+    n_trials: int = 100,
+    seed: int = 0,
+    misread_rate: float = MISREAD_RATE,
+) -> list[FloorTrial]:
+    """Run the gated rule with NO read floor on single-source and colluded leaks."""
+    rng = random.Random(seed)
+    centres = list(codebook)
+    trials: list[FloorTrial] = []
+    for size in sizes:
+        for k in k_values:
+            for _ in range(n_trials):
+                sources = rng.sample(centres, size)
+                observed = read_leak(_leak(paper, codebook, sources, k, rng), paper)
+                result = score(observed, codebook, misread_rate=misread_rate, min_read_slots=0)
+                if result.outcome is Outcome.IDENTIFIED:
+                    kind = "correct" if result.ranked[0][0] in sources else "false"
+                elif result.outcome is Outcome.MULTI_SOURCE_SUSPECTED:
+                    innocent = any(c not in sources for c in result.named_pair)
+                    kind = "multi_source_pair_innocent" if innocent else "multi_source"
+                else:
+                    kind = "refused"
+                trials.append(FloorTrial(size, k, result.positions_used,
+                                         bits_read(paper, observed), kind))
+    return trials
+
+
+def aggregate_floor(trials: Sequence[FloorTrial]) -> list[FloorRow]:
+    """Tally floor-sweep trials by slots read."""
+    tally: dict[int, list[int]] = {}
+    for tr in trials:
+        cell = tally.setdefault(tr.reads, [0, 0, 0, 0, 0, 0])
+        cell[0] += 1
+        if tr.kind == "correct":
+            cell[1] += 1
+        elif tr.kind == "false":
+            cell[2] += 1
+        elif tr.kind.startswith("multi_source"):
+            cell[3] += 1
+            cell[4] += tr.kind == "multi_source_pair_innocent"
+        else:
+            cell[5] += 1
+    return [FloorRow(r, *cell) for r, cell in sorted(tally.items())]
+
+
 def run_floor_sweep(
     paper: Paper,
     codebook: Codebook,
@@ -300,25 +367,27 @@ def run_floor_sweep(
     misread_rate: float = MISREAD_RATE,
 ) -> list[FloorRow]:
     """Gated rule with NO read floor, tallied by slots read (the floor's evidence)."""
-    rng = random.Random(seed)
-    centres = list(codebook)
-    tally: dict[int, list[int]] = {}
-    for size in sizes:
-        for k in k_values:
-            for _ in range(n_trials):
-                sources = rng.sample(centres, size)
-                observed = read_leak(_leak(paper, codebook, sources, k, rng), paper)
-                result = score(observed, codebook, misread_rate=misread_rate, min_read_slots=0)
-                cell = tally.setdefault(result.positions_used, [0, 0, 0, 0, 0, 0])
-                cell[0] += 1
-                if result.outcome is Outcome.IDENTIFIED:
-                    cell[1 if result.ranked[0][0] in sources else 2] += 1
-                elif result.outcome is Outcome.MULTI_SOURCE_SUSPECTED:
-                    cell[3] += 1
-                    cell[4] += any(c not in sources for c in result.named_pair)
-                else:
-                    cell[5] += 1
-    return [FloorRow(r, *cell) for r, cell in sorted(tally.items())]
+    return aggregate_floor(
+        floor_trials(paper, codebook, sizes, k_values, n_trials, seed, misread_rate)
+    )
+
+
+def suggest_bits_floor(trials: Sequence[FloorTrial]) -> float:
+    """Most bits read by any false identification; a bits floor identifies only above it."""
+    worst = [tr.bits for tr in trials if tr.kind == "false"]
+    return max(worst) if worst else 0.0
+
+
+def predicted_identification(
+    trials: Sequence[FloorTrial], k: int, slot_floor: int, bits_floor: float
+) -> tuple[float, float]:
+    """Single-source identification at ``k`` questions under a slot floor vs a bits floor."""
+    single = [tr for tr in trials if tr.size == 1 and tr.k == k]
+    if not single:
+        return 0.0, 0.0
+    by_slots = sum(tr.kind == "correct" and tr.reads >= slot_floor for tr in single)
+    by_bits = sum(tr.kind == "correct" and tr.bits > bits_floor for tr in single)
+    return by_slots / len(single), by_bits / len(single)
 
 
 def suggest_floor(rows: Sequence[FloorRow]) -> int:
@@ -440,11 +509,25 @@ def main() -> None:
           f"{misreads.point:.2e}, 95% upper bound {misreads.upper95:.2e}")
     print(f"deployed MISREAD_RATE = {MISREAD_RATE:.2e} -> tolerance at 31 reads: "
           f"{mismatch_tolerance(31, MISREAD_RATE, FALSE_REJECTION_BUDGET)}")
-    floor_rows = run_floor_sweep(paper, book, n_trials=100, seed=1,
-                                 misread_rate=misreads.upper95)
+    trials = floor_trials(paper, book, n_trials=100, seed=1, misread_rate=misreads.upper95)
+    floor_rows = aggregate_floor(trials)
     print("\n=== read floor: gated rule with NO floor, by slots read (100 trials per cell) ===")
     print(format_floor_table(floor_rows))
     print(f"suggested MIN_READ_SLOTS = {suggest_floor(floor_rows)}; deployed = {MIN_READ_SLOTS}")
+
+    check = floor_trials(paper, book, n_trials=100, seed=7, misread_rate=misreads.upper95)
+    bits_floor = suggest_bits_floor(trials)
+    above = [tr for tr in check if tr.bits > bits_floor]
+    print("\n=== bits floor (open item for M11; NOT deployed) ===")
+    print(f"seed 1: identify only above {bits_floor:.2f} bits read; seed 7 check: "
+          f"{sum(tr.kind == 'false' for tr in above)} false IDs in {len(above)} leaks above it "
+          f"(seed 7 alone suggests {suggest_bits_floor(check):.2f})")
+    combined = max(bits_floor, suggest_bits_floor(check))
+    for k in (2, 3):
+        for label, run in (("seed 1", trials), ("seed 7", check)):
+            slots, bits = predicted_identification(run, k, MIN_READ_SLOTS, combined)
+            print(f"single-source, {k} questions, {label}: slot floor {100 * slots:.0f}% "
+                  f"-> bits floor ({combined:.2f}) {100 * bits:.0f}%")
     collusion_rows = run_collusion_bench(paper, book, n_trials=200, seed=2)
     print("\n=== collusion: minority strategy, 6 questions, retype, 3% typos (200 per row) ===")
     print(format_collusion_table(collusion_rows))

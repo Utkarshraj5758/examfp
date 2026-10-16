@@ -138,3 +138,39 @@ def test_collusion_bench_before_and_after(sample_paper: Paper) -> None:
         if r.rule == "before":
             assert r.pair_exact == r.pair_partial == r.pair_with_innocent == 0
             assert r.multi_source_unnamed == 0  # the old rule had no such outcome
+
+
+# --- M5.5 open item for M11: a floor counted in bits, measured but not deployed ---------------
+def test_bits_read_sums_log2_alphabets(sample_paper: Paper) -> None:
+    from math import log2
+
+    from eval.bench import bits_read
+
+    observed = {("q2", "opts"): (3, 1.0), ("q2", "lead"): (0, 1.0)}
+    assert bits_read(sample_paper, observed) == pytest.approx(log2(119) + log2(2))
+
+
+def test_floor_trials_aggregate_to_the_floor_sweep(sample_paper: Paper) -> None:
+    from eval.bench import aggregate_floor, floor_trials, run_floor_sweep
+
+    book = assign(sample_paper, 200, 0)
+    kwargs = dict(sizes=(1, 2), k_values=(2, 5), n_trials=4, seed=3, misread_rate=0.0)
+    trials = floor_trials(sample_paper, book, **kwargs)  # type: ignore[arg-type]
+    assert aggregate_floor(trials) == run_floor_sweep(sample_paper, book, **kwargs)  # type: ignore[arg-type]
+    assert all(t.bits > 0 for t in trials if t.reads)
+
+
+def test_bits_floor_and_predicted_gain() -> None:
+    from eval.bench import FloorTrial, predicted_identification, suggest_bits_floor
+
+    trials = [
+        FloorTrial(size=2, k=2, reads=6, bits=9.0, kind="false"),
+        FloorTrial(size=3, k=3, reads=9, bits=12.5, kind="false"),
+        FloorTrial(size=1, k=2, reads=6, bits=17.0, kind="correct"),
+        FloorTrial(size=1, k=2, reads=8, bits=11.0, kind="correct"),
+        FloorTrial(size=1, k=2, reads=7, bits=16.0, kind="refused"),
+    ]
+    assert suggest_bits_floor(trials) == 12.5  # identify only above the worst false-ID bits
+    by_slots, by_bits = predicted_identification(trials, k=2, slot_floor=11, bits_floor=12.5)
+    assert by_slots == 0.0  # no 2-question leak reaches 11 slots
+    assert by_bits == pytest.approx(1 / 3)  # the 17-bit leak clears 12.5 bits

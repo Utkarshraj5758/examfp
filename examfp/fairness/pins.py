@@ -59,6 +59,7 @@ NLI_SMALL = NliPin(
 
 # Candidate, approved by the owner on 2026-10-17 for comparison on the held-out
 # set only (PLAN.md M6, "To close M6"). Same tokenizer files as the small model.
+# Not chosen: 54/60 on the held-out set against small's 55/60 (NOTES.md, M6).
 NLI_BASE = NliPin(
     key="base",
     model_id="cross-encoder/nli-deberta-v3-base",

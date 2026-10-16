@@ -232,6 +232,12 @@ channel (`units.py`).
 - *Decision 7:* held-out 55/60 (95% CI 81.6–97.2%), with 2 false acceptances
   (changed quantity); fixture agreement 17/20.
 
+- *Stronger model, tried (2026-10-17):* `cross-encoder/nli-deberta-v3-base@6c749ce`,
+  owner-approved and pinned beside the small model, scored 54/60 on the held-out
+  set (2 false acceptances, 4 false rejections) against small's 55/60. Under the
+  rule fixed before scoring, small stays. The one fixture run, with small, is
+  unchanged: 3 false rejections.
+
 Numbers, findings and open items are in NOTES.md, M6. **To close M6:** meet
 the false-rejection budget without tuning on the fixture, for example with a
 stronger pinned model chosen on held-out data (the M9 baseline above).

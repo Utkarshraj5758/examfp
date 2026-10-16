@@ -577,11 +577,48 @@ two strictly better**. A tie on both, or a trade-off, keeps small. The fixture
 is then run once (`.\tasks.ps1 fairness`) with the chosen model. Nothing on the
 fixture feeds back into the choice or the threshold.
 
+**Result: base is not chosen; small stays; M6 stays open.** Held-out set,
+threshold 0.5 both ways, CPU, 2026-10-17:
+
+| model | accuracy | 95% CI | false acc. | false rej. | wrong |
+|---|---|---|--:|--:|---|
+| small `@fa2804872c3b4bd748f38c0185cc85775361e735` | **55/60 = 91.7%** | 81.6–97.2% | 2/30 | 3/30 | E03, E09, E25; N06, N08 |
+| base `@6c749ce3425cd33b46d187e45b92bbf96ee12ec7` | 54/60 = 90.0% | 79.5–96.2% | 2/30 | 4/30 | E03, E09, **E18**, E25; N08, **N29** |
+
+Base ties on false acceptances and is one pair worse on accuracy, so it fails
+"accuracy ≥ 55/60". Small reproduced its recorded numbers exactly.
+
+- **Base rejects the same one-way pairs, plus one more.** In E09, E18 and E25
+  the candidate entails the reference (0.94–0.998) but not the reverse
+  (0.004–0.179). E18 is "Round 4.678 to two decimal places." vs "Give 4.678
+  correct to two decimal places." A bigger NLI model is no more lenient about
+  specificity, which is the pattern behind F11 and F13.
+- **Base accepts a reversed division.** N29 is "Divide 84 by 12." vs "Divide 12
+  by 84." (0.943 / 0.991). Both use the same numbers, so the numbers rule passes
+  it and NLI is the only guard. Small rejects it. Base fixes N06 (circumference
+  → area), and both accept N08 (factors → multiples).
+- **The set cannot separate the two.** One pair apart, with intervals that
+  almost coincide. The rule's tie-break keeps the incumbent, which is the
+  smaller and faster model.
+- **Latency was not the obstacle.** One pair on CPU (AMD64 family 25, 6 torch
+  threads, 21 calls): small median 74 ms (max 93), base median 152 ms (max 198).
+  Both are under 300 ms.
+
+**The one fixture run, with the chosen model (small),** `.\tasks.ps1 fairness`:
+unchanged. 0 false acceptances, each unfair entry failing exactly its labelled
+rule. False rejections {F11, F13, F14}: **3 against a budget of 2**, still the
+strict xfail. Lazy load and the 300 ms test pass, the sample paper passes every
+check, and fixture agreement is 17/20. **Base was not run on the fixture.** The
+protocol runs it only with the chosen model, and its fixture result would invite
+choosing on the fixture.
+
 ### Open items
 
 - **M6 acceptance is open:** 3 false rejections against a budget of 2. The way
   forward is a stronger model (the reliability numbers above are M9's
   baseline) or an owner-level change to how instruction-type slots are judged.
+  The obvious next size up, nli-deberta-v3-base, lost on held-out data (above);
+  its one-way rejections suggest model size alone will not fix this.
 - **NLI false acceptances** on held-out data (2/30, both "changed quantity").
 - **Unit table** contents need owner review before any addition.
 - **Readability tolerances** (words and syllables within 20%, rare words within

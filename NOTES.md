@@ -399,3 +399,175 @@ q7 6.81, q8 8.89.
   `NO_MATCH` or `INSUFFICIENT` trace.
 - **Contract.** *Fixed:* CLAUDE.md now promises a measured false-identification
   rate (practical mode) or a provable collusion bound (provable mode).
+
+---
+
+## M6 — Fairness checker (2026-10-17)
+
+**Built.** `examfp/fairness/`: `answers.py` (SymPy, exact `Rational`),
+`bands.py` (the frozen band validator, wrapped, plus the step rule of
+[ADR 0004](docs/ADR/0004-step-count-rule.md)), `nli.py` (the pinned
+cross-encoder, lazy, local files only), `units.py` (unit table),
+`readability.py`, `check.py` (`FairnessChecker`; one `FairnessReport` per
+variant with per-check pass/fail and reason), `pins.py` (model id, revision,
+files). `.\tasks.ps1 fetch-models` is the only download; `.\tasks.ps1 fairness`
+runs the local acceptance and `eval/nli_reliability.py`.
+
+**Dependencies.** SymPy 1.14.0 is a base dependency; the `fairness` extra holds
+torch 2.14.1, transformers 5.19.0, tokenizers 0.23.3, sentencepiece 0.2.2 and
+wordfreq 3.1.1. The whole pinned set, all extras together, resolves with wheels
+only for Python 3.11 and 3.12 on Windows (83 packages each; 74 / 73 at M4). The
+revision ships `tokenizer.json`, so no protobuf is needed. A `.[dev]`-only venv
+(CI's profile: SymPy present, no torch, transformers or wordfreq) is lint-clean
+and passes 371 tests with `local_model` deselected.
+
+| slot | channel | checks, in order |
+|---|---|---|
+| unbanded text | wording | numbers identical → NLI both ways → readability (stop at first failure) |
+| unit form | unit form | numbers identical → unit table → readability |
+| banded group | numeric | SymPy answer, digits, trivial; then steps, only for a valid band member with the right answer |
+| option order | option order | same options, answer letter on the correct text |
+
+A check that did not run is recorded as not run and counts as not passed. The
+separation is proved in CI: a raising NLI backend for every numeric and
+unit-form variant and for U11; a spy showing every pair the model saw has
+identical numbers and reference numeric groups; SymPy and the band rules
+patched to raise during wording checks.
+
+### Owner rulings in this session
+
+- **Step rule** (ADR 0004): equal positional operations AND equal carries,
+  borrows or non-zero remainders in the canonical written method; per-operation
+  definitions, addition/subtraction included. Every carry counts (the leftmost
+  column's and those in the addition of partial products); the multiplier is
+  the second operand in fill order.
+- **After the first acceptance run:** keep the model and threshold 0.5, record
+  the failure, and fix the paper; judge unit forms with a deterministic unit
+  table instead of NLI.
+
+### Acceptance — not met (recorded on the owner's decision)
+
+`cross-encoder/nli-deberta-v3-small@fa2804872c3b4bd748f38c0185cc85775361e735`,
+threshold 0.5 both ways, CPU (AMD64 family 25, 6 torch threads), 2026-10-17:
+
+| criterion | target | result |
+|---|---|---|
+| false acceptances, 11 unfair entries | 0 | **0**, each failing exactly its labelled rule |
+| false rejections, 29 fair entries | ≤ 2 | **3** (F11, F13, F14): **not met**. 5 before the unit table (also F21, F22) |
+| lazy load | yes | yes: construction touches neither disk nor torch |
+| one pair scored on CPU | < 300 ms | median 76 ms, max 95 ms (21 pairs); first call 20 s cold (imports + load) |
+| sample paper passes every check | yes | yes, 414 reports |
+
+All three rejections come from NLI, and no threshold rescues them:
+
+| entry | candidate (reference) | ref → cand | cand → ref |
+|---|---|--:|--:|
+| F11 | "Show all your steps." ("Show your working.") | 0.009 | 0.881 |
+| F13 | "Show each step of your working." | 0.003 | 0.972 |
+| F14 | "Tick the correct box." ("Choose one option only.") | 0.524 | 0.034 |
+| U09, unfair | "Give your answer in square metres." | 0.000 | 0.803 |
+| U10, unfair | "Identify a value other than" | 0.008 | 0.827 |
+
+The fair rejections share the unfair entries' one-way pattern: F13's weaker
+direction (0.003) is below U10's (0.008). Entailment is stricter than "asks the
+same question": a more specific instruction entails the general one, not the
+reverse. F14 is the hard case the fixture anticipated. Nothing was tuned on the
+fixture and no label was revised (now a CLAUDE.md rule). The pinned set
+{F11, F13, F14} is a test, and the budget is a strict xfail that fails loudly
+once it passes.
+
+**Unit forms.** The DeBERTa tokenizer maps ² and ³ to `[UNK]`, so the model
+cannot see cm² or g/cm³; it rejected both of q3's alternatives ("sq cm"
+0.002 / 0.005). `units.py` holds exactly the forms the paper and the fixture
+use; matching is exact; an unlisted form fails closed.
+
+### Model reliability (decision 7; M9's baseline)
+
+- **Held-out set** (`eval/nli_reliability.json`, 60 pairs, labelled and
+  committed before any scoring): **55/60 = 91.7% (95% CI 81.6–97.2%)**.
+  Equivalent 27/30 (E03, E09, E25 rejected); changed units 7/7; constraint 8/8;
+  reversed relationship 7/7; changed quantity **6/8**.
+- **Two false acceptances**: N06 circumference → area (0.834 / 0.625) and N08
+  factors → multiples (0.991 / 0.989). The NLI gate can pass a wording variant
+  that asks for a different quantity. The sample's wording slots (lead verbs,
+  closings, intros) sit away from the quantity asked, so the exposure is small
+  here, but NLI alone is not safe for a slot that names the quantity.
+- **Fixture agreement**, on the 20 wording entries the checker sends to the
+  model: 17/20 (85.0%, CI 62.1–96.8%). Unit forms, shown for reference only:
+  3/5.
+- **Context sensitivity:** "Show your method." passes in q3 (F12: 0.647 / 0.857)
+  but fails in q1, q6 and q7.
+
+### Sample paper changes (decisions 3 and 4)
+
+| slot | change | alphabet |
+|---|---|---|
+| q3 dims | removed 20 × 72 (1 carry) and 32 × 45 (4 carries) | 7 → 5 |
+| q7 cost | removed 72 × 20 and 45 × 32 | 7 → 5 |
+| q4 pctval | 20% of 300 and 25% of 240 (one step) → 12% of 500, 48% of 125 | 7 |
+| q1, q6, q7 intro | place-name swaps → same-place paraphrases (F16–F18) | 2 |
+| closings of q1, q3, q4, q6, q7 | "Show all your steps." → "Include your working." | 2 |
+| closings of q2, q5, q8 | "Tick the correct box." → "Select only one option." | 2 |
+
+- **Why 5 for q3 and q7:** exactly five operand sets of 1440 tie with 16 × 90
+  under the step rule ({16, 90}, {18, 80}, {24, 60}, {30, 48}, {36, 40}), and the
+  reader identifies a group by its *set* of numbers, so the swapped F28 and F29
+  (fair, and passing) cannot be added beside their originals.
+- **Replacement wording:** candidate lists were fixed before scoring, and the
+  first candidate passing in every question that uses the closing was taken:
+  "Show your method." failed q1, q6, q7; "Show your work." passed;
+  "Select only one option." passed.
+- **Finding: a near-prefix variant breaks the reader.** "Show your work." is
+  nearly a prefix of "Show your working."; under typos the fuzzy reader took
+  the reference for it 6 times in 104,048 reads (all six misreads were this).
+  Following ADR 0003 for that paper would have set tolerance 1 and floor 16
+  (seed 7), cutting 3-question leaks to 0%, 4-question leaks to 47.5%, and the
+  pair hypothesis to 6/125. A second list fixed in advance ("Show your
+  calculations.", "Include your working.", "Show how you worked it out.") gave
+  "Include your working.", which passes all five (≥ 0.99 both ways) and reads
+  with 0 misreads. **This choice was made after measuring both papers**, so the
+  numbers below come from a paper picked partly on the bench. Authoring rule
+  from now on: no variant may be a near-substring of another in the same slot.
+- **Fixture `approved` flags:** F11 and F14 → false; F15–F18, F26, F27 → true.
+  No label changed.
+
+### Published numbers that moved (`.\tasks.ps1 bench`)
+
+| measure | before M6 | after M6 |
+|---|---|---|
+| payload / group bits | 59.5 / 14.04 | 58.5 / 13.07 |
+| durable fraction | 68.1% | 67.5% |
+| q3 / q7 bits | 6.39 / 6.81 | 5.91 / 6.32 |
+| RS shape | n = 7, k = 2 | n = 7, k = 2; every group's membership changed (ADR 0002) |
+| RS, 3 questions identified | 82.0% | 80.0% |
+| RS, 4–8 questions | 100% | 100% |
+| RS, early / middle thirds, 3 questions | 99.0 / 98.0% | 99.5 / 97.0% |
+| false identification, single source | 0% | 0% in every cell |
+| misreads (6,000 leaks) | 0 / 104,026 | 0 / 104,098; bound 2.88e-5, tolerance 0, unchanged |
+| `MIN_READ_SLOTS` | 11 | 11: false IDs up to 10 reads (seeds 1 and 7), 0 in 5,812 leaks at ≥ 11 |
+| innocents identified, coalitions 1–5 | 0 | 0 |
+| pair hypothesis (`--hypotheses`) | 98 / 109 | 117 / 126; all 9 wrong from 3- or 4-centre leaks |
+| old margin-only rule, 2-centre leaks naming an innocent | 5.5% | 11.5% |
+| bits floor (not deployed) | seed 1 16.29, seed 7 18.59 | seed 1 17.79, seed 7 16.29 |
+| mixed-radix baseline: constant positions / 6 questions | 20 / 91.0% | 19 / 87.0% |
+
+- **The 2-question capacity bound still holds, now with equality.** Seed 1
+  produced a false identification at 17.79 bits, exactly what q2 + q5 carry;
+  a bits floor identifies only strictly above, so 2-question leaks stay at 0%.
+- A bits floor at 17.79 would lift single-source 3-question leaks from 82–84%
+  to 98–99% (seeds 1 and 7). Still M11's open item, not deployed.
+- `out/` from earlier milestones holds a pre-M6 codebook; `demo` refuses it and
+  says to delete `out/`.
+
+### Open items
+
+- **M6 acceptance is open:** 3 false rejections against a budget of 2. The way
+  forward is a stronger model (the reliability numbers above are M9's
+  baseline) or an owner-level change to how instruction-type slots are judged.
+- **NLI false acceptances** on held-out data (2/30, both "changed quantity").
+- **Unit table** contents need owner review before any addition.
+- **Readability tolerances** (words and syllables within 20%, rare words within
+  1, Zipf < 3.0) were set before scoring and have not been calibrated; no
+  fixture entry exercises readability as the deciding rule.
+- **Near-substring variants** confuse the fuzzy reader. Enforce the authoring
+  rule in M7's reader work or as a checker rule (owner decision).

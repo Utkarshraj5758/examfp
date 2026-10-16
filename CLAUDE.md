@@ -69,7 +69,8 @@ Two modes exist. Never conflate them in code, docs or claims:
 examfp/                 core library — pure, no I/O except render/ocr
   models.py             Paper, Question, Slot, Variant, Answer      [FROZEN]
   render.py             Typst -> PDF, layout invariance             [FROZEN]
-  fairness/             difficulty bands, SymPy answers, NLI equivalence
+  fairness/             difficulty bands + step rule, SymPy answers, NLI
+                        equivalence, unit table, readability
   codebook/             rs.py, tardos.py, assign.py, crypto.py
   decode/               ocr.py, align.py, read.py, score.py, neural.py
   attacks.py            crop, retype, typos, paraphrase, collude
@@ -111,6 +112,9 @@ instruction, never as a side effect of another milestone.
 - Never evaluate on adversarial data generated in the same loop iteration it
   was trained on.
 - A result is reportable only if it reproduces from the seed in its run card.
+- Fixture labels are never revised to match model output. When a model
+  disagrees with a hand label, the model has erred and the error counts against
+  its budget. Thresholds are never tuned on the fixture they are judged by.
 
 ## Security rules
 

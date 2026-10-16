@@ -116,7 +116,7 @@ NOTES.md, M5.5.
 
 ---
 
-### [ ] M6 — Fairness checker
+### [~] M6 — Fairness checker
 
 The claim the whole project rests on, made machine-checkable.
 
@@ -209,6 +209,33 @@ under 300 ms on CPU.
 > plus cross-encoder/nli-deberta-v3-small at revision fa28048. Before adopting
 > the step rule, ask the owner the open questions in decision 2.
 
+**Status (2026-10-17, branch `m6-fairness`): built; acceptance not met, recorded
+on the owner's decision.** Everything in the Build list exists, plus a unit-form
+channel (`units.py`).
+
+- *Decision 2 answered:* the step rule (ADR 0004) covers division (dividend
+  digits, non-zero remainders), addition and subtraction (columns, carries or
+  borrows), and percentages (one step when 100 / p is whole). Every carry counts,
+  and the multiplier is the second operand in fill order.
+- *Owner rulings after the first run:* unit forms are judged by a unit table,
+  not NLI (the tokenizer reads ² and ³ as `[UNK]`); the model and threshold 0.5
+  stay; record the result and fix the paper.
+- *Acceptance:* 0 false acceptances on the 11 unfair entries, each failing
+  exactly its labelled rule. **3 false rejections** on the 29 fair (F11, F13, F14,
+  all NLI) **against a budget of 2.** Lazy load works, at 76 ms per pair; the
+  sample paper passes every check. The budget test is a strict xfail; the
+  rejection set is pinned.
+- *Decision 3:* sample.json is fixed (q3 and q7 now 5 variants, q4 7) and
+  re-benched. The ADR 0003 procedure leaves the calibration unchanged (0
+  misreads; floor 11; 0 innocents for coalitions of 1–5). The pair accuracy
+  moved, 98/109 → 117/126. 3-question leaks: 82% → 80%.
+- *Decision 7:* held-out 55/60 (95% CI 81.6–97.2%), with 2 false acceptances
+  (changed quantity); fixture agreement 17/20.
+
+Numbers, findings and open items are in NOTES.md, M6. **To close M6:** meet
+the false-rejection budget without tuning on the fixture, for example with a
+stronger pinned model chosen on held-out data (the M9 baseline above).
+
 ---
 
 ### [ ] M7 — OCR path
@@ -217,7 +244,7 @@ under 300 ms on CPU.
 per-slot misread rate and recalibrate the decision rule against it —
 `MISREAD_RATE`, hence the gate tolerance, then `MIN_READ_SLOTS` — using the
 procedure in ADR 0003. *Why first:* the gate's tolerance is 0, calibrated for the
-fuzzy text reader (0 misreads in 104,026 reads). At tolerance 0, a 1% per-slot
+fuzzy text reader (0 misreads in 104,026 reads; 104,098 after M6). At tolerance 0, a 1% per-slot
 misread rate makes 1 − 0.99¹¹ ≈ 10% of genuine 11-slot leaks fail the gate, and
 those leaks would come back `MULTI_SOURCE_SUSPECTED` or `INSUFFICIENT`. That
 would look like an OCR failure when it is really a gate calibrated for the wrong

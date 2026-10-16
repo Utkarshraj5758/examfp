@@ -120,30 +120,94 @@ NOTES.md, M5.5.
 
 The claim the whole project rests on, made machine-checkable.
 
-**Build:** `fairness/bands.py` (already partly in models — keep it there, wrap
-it), `fairness/answers.py` using SymPy with exact `Rational`, `fairness/nli.py`
-using `cross-encoder/nli-deberta-v3-small` requiring bidirectional entailment,
-`fairness/readability.py` comparing word count, syllable count and rare-word
-count within tolerance. One `FairnessReport` per variant with per-check
-pass/fail and reason.
+**Build:** `examfp/fairness/`: `answers.py` (SymPy, exact `Rational`),
+`bands.py` (wraps the existing band validator in `models.py`, which stays
+frozen, and adds the step rule), `nli.py` (`cross-encoder/nli-deberta-v3-small`,
+bidirectional entailment above a configurable threshold, loaded lazily and
+cached), `readability.py` (word, syllable and rare-word counts within
+tolerance). Each check returns `(passed, reason)`. One `FairnessReport` per
+variant with per-check pass/fail and reason.
 
-**Acceptance:** on a labelled fixture set of 40 variants (20 fair, 20
-deliberately broken — wrong answer, meaning drift, difficulty jump, rare word),
-all 20 broken are rejected with at most 2 false rejections. NLI model loads
-lazily and scores a pair in under 300 ms on CPU.
+**Owner decisions (2026-10-17, planning session) — binding:**
+
+1. **Three channels, three tests, never mixed; the tests assert the separation.**
+   - *Wording* (wording and unit-form slots): numbers must be identical to the
+     reference, then NLI entailment both ways, then readability. Never SymPy.
+   - *Numeric* (banded groups): SymPy answer equivalence. **Never passed to the
+     NLI model**, which would reject valid variants as non-equivalent statements.
+   - *Difficulty band*: arithmetic rules only (digit counts, trivial operands,
+     step count).
+   - Option orders: structural check (same options, same correct text).
+   - A spy NLI backend must prove that no numeric variant, and no pair whose
+     numbers differ, ever reaches the model.
+2. **Step count, recorded in a new ADR 0004.** Use the canonical written method:
+   partial products for multiplication; for a percentage, one step when it is
+   a clean fraction of 100, two otherwise. The ADR states the definition, why
+   it was chosen, and the limitation that students may solve by other methods.
+   It is expected to reject the sample paper's q3 (32 × 45), q7 (45 × 32) and
+   q4 (20%, 25% against the reference 15%) variants; that is correct behaviour.
+   **Open, ask the owner before adopting:**
+   - Division has no rule yet (bands q1, q6). Proposal: one step per quotient
+     digit in short division, which is constant when the answer is fixed.
+   - Read "clean fraction" as 100/p being an integer (20%, 25%: one step; 40%
+     = 2/5: two steps). Confirm that reading.
+   - `add` and `subtract` bands have no rule either; they must fail closed.
+3. **Fix `data/papers/sample.json` so it passes every check.** Then re-run
+   `.\tasks.ps1 bench` and report which published numbers moved.
+   - Do not assume the durable-bit percentage or the k-sweep are unchanged.
+     Alphabets shrink, which changes the bit counts and possibly the RS
+     packing (ADR 0002).
+   - Check the M5.5 calibration too. The guard test pins the pair accuracy at
+     98/109, and the read floor and bits floor may move. Follow ADR 0003's
+     recalibration procedure if they do.
+   - For q4, a fix can keep 7 variants: 12% of 500 and 48% of 125 are
+     two-step, like 15%.
+4. **NLI stays strict, with no exemptions for context slots.** Replace the
+   place-name intro swaps (q1 Nashik / Pune highway, q6 Bengaluru lab / school
+   lab, q7 Delhi bookshop / Chennai store) with same-place paraphrases, two per
+   slot.
+   - F14 stays labelled fair. If the model rejects it, that is a false
+     rejection against the budget of two.
+   - **Fixture labels are never revised to match model output.** Add this
+     principle to CLAUDE.md, under ML discipline.
+5. **Dependencies.** Downloads were approved in the planning session;
+   reconfirm at the session kickoff.
+   - SymPy 1.14.0 becomes a base dependency.
+   - A new `fairness` extra, separate from `ml`: torch 2.14.1, transformers
+     5.19.0, tokenizers 0.23.3, sentencepiece 0.2.2 and wordfreq 3.1.1
+     (rare words).
+   - The model `cross-encoder/nli-deberta-v3-small` is pinned at revision
+     `fa2804872c3b4bd748f38c0185cc85775361e735`. Fetch only
+     `model.safetensors` and the tokenizer and config files, not the ONNX
+     copies. At runtime, load local files only.
+6. **The acceptance test is marked and local-only.** CI skips it; the
+   fake-model separation tests run in CI. Record its result in NOTES.md with
+   the model revision and date, so drift shows up in the diff. M14 caches the
+   model in CI.
+7. **Model reliability, M9's baseline.**
+   - Build a wording set of about 60 pairs outside the 40-entry fixture: half
+     equivalent, half not. The non-equivalent half covers a changed quantity
+     asked for, changed units, an added or removed constraint, and a reversed
+     relationship.
+   - Report the NLI model's accuracy on it with a confidence interval in
+     NOTES.md.
+   - Also report its agreement with the hand labels on the fixture's wording
+     subset.
+
+**Fixture (approved):** `tests/fixtures/variants.json`, 40 entries: 29 fair,
+11 unfair (2 `wrong_answer`, 2 `extra_step`, 2 `trivial_operand`, 2
+`digit_jump`, 3 `changes_question`). Each unfair entry fails exactly the rule on
+its label. After the sample-paper fix, update the `approved` flags.
+
+**Acceptance:** at most 2 false rejections on the 29 fair entries and zero false
+acceptances on the 11 unfair. The NLI model loads lazily and scores a pair in
+under 300 ms on CPU.
 
 **Prompt:**
-> Read CLAUDE.md. Build M6, the fairness checker, in examfp/fairness/. Four pure
-> check functions each returning (passed: bool, reason: str): answer_equivalent
-> using SymPy exact Rationals; meaning_equivalent using cross-encoder/nli-deberta-v3-small
-> requiring entailment in both directions above a configurable threshold, model
-> loaded lazily and cached; readability_similar on word count, syllable count and
-> rare-word count within tolerance; band_satisfied wrapping the existing
-> difficulty-band validator. Combine into FairnessReport. First create
-> tests/fixtures/variants.json with 20 fair and 20 deliberately broken variants
-> covering wrong answer, meaning drift, difficulty jump and rare vocabulary, and
-> show me that file before implementing. Acceptance: all 20 broken rejected, at
-> most 2 false rejections, NLI under 300 ms per pair on CPU.
+> Read CLAUDE.md and PLAN.md's M6 section, including the owner decisions. Build
+> M6, the fairness checker. Downloads are approved: the packages listed in M6
+> plus cross-encoder/nli-deberta-v3-small at revision fa28048. Before adopting
+> the step rule, ask the owner the open questions in decision 2.
 
 ---
 
@@ -358,7 +422,9 @@ appears. Dashboard never displays raw codewords.
 `.env.example`; CI building and pushing images on tag; `docs/RUNBOOK.md`
 (deploy, roll back, rotate keys, restore from backup, what to do when a trace
 is disputed); `docs/THREAT_MODEL.md`; backup job for Postgres with a documented
-restore drill; `.\tasks.ps1 smoke` hitting a deployed instance.
+restore drill; `.\tasks.ps1 smoke` hitting a deployed instance. **Also (from
+M6):** cache the NLI model (`cross-encoder/nli-deberta-v3-small` at revision
+`fa28048`) in CI, so the local-only fairness acceptance test runs there too.
 
 **Acceptance:** `docker compose up` from a clean machine brings the whole stack
 up; the smoke test passes; the restore drill is performed once and its result

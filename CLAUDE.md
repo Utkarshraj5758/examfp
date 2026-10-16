@@ -40,9 +40,11 @@ Two modes exist. Never conflate them in code, docs or claims:
    the observation set. The decoder must never fall back to "most likely
    variant".
 4. **No accusation below threshold.** Outcomes are `IDENTIFIED`,
-   `MULTI_SOURCE_SUSPECTED`, `INSUFFICIENT`, `NO_MATCH`. A ranked list without a
-   threshold crossing is not an accusation. `MULTI_SOURCE_SUSPECTED` may name at
-   most one pair, as a hypothesis for investigation only - never an accusation.
+   `MULTI_SOURCE_SUSPECTED`, `INSUFFICIENT`, `NO_MATCH`. A verdict names at most
+   one centre, and only on `IDENTIFIED`. A `MULTI_SOURCE_SUSPECTED` verdict names
+   nobody. A ranked list is not a verdict: it is shown only beside `IDENTIFIED`
+   or on explicit request. Pair hypotheses are opt-in, never part of a verdict,
+   and must carry their measured accuracy whenever shown.
 5. **Secrets never touch disk unencrypted and never appear in logs.** Covers
    codebooks, Tardos biases, data keys, KEKs, and raw leak uploads.
 6. **Tests first.** Every module has tests mirroring its path. A milestone is

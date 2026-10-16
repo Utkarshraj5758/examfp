@@ -134,3 +134,13 @@ def test_core_library_imports_no_repo_tooling() -> None:
                 names = [node.module]
             offenders += [f"{path.name}: {n}" for n in names if n.split(".")[0] in _TOOLING]
     assert offenders == []
+
+
+def test_rule_4_lists_exactly_the_outcomes_the_code_has() -> None:
+    from examfp.decode.score import Outcome
+
+    claude = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    rule = claude[claude.index("4. **No accusation below threshold.**"):claude.index("\n5. ")]
+    listed = rule[rule.index("Outcomes are"):rule.index(".", rule.index("NO_MATCH"))]
+    assert set(re.findall(r"`([A-Z_]+)`", listed)) == {o.value for o in Outcome}
+    assert "verdict names nobody" in " ".join(rule.split())  # wrapping-proof

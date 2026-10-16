@@ -381,10 +381,12 @@ q7 6.81, q8 8.89.
   (2), misreads beyond the tolerance, more likely, and M7 touches this code
   anyway. Rename then, e.g. to `NO_CONSISTENT_SOURCE`. Kept as-is for now to
   avoid churn across the enum, CLI, bench CSV and CLAUDE.md rule 4.
-- **Contract wording on pairs (owner).** CLAUDE.md rule 4 still allows
-  `MULTI_SOURCE_SUSPECTED` to "name at most one pair". The code is now stricter:
-  verdicts name nobody, and the pair appears only under `--hypotheses`. The rule
-  is still satisfied; whether to tighten it is the owner's call.
+- **Contract wording on pairs.** *Fixed:* CLAUDE.md rule 4 now matches the code.
+  A verdict names at most one centre, and only on `IDENTIFIED`. A multi-source
+  verdict names nobody. A ranking is shown only beside `IDENTIFIED` or on
+  request. Pair hypotheses are opt-in and always carry their measured accuracy.
+  `tests/test_repo_hygiene.py` checks that the rule lists exactly the `Outcome`
+  values, so the M7 rename cannot leave the contract behind.
 - **Ranked list on non-identifying outcomes.** *Fixed.* The trace, the demo and
   the dashboard printed the top 5 centres with scores for every outcome, which
   defeated the gate at the display layer: on a two-centre full-paper leak, the

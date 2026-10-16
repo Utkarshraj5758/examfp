@@ -2,7 +2,8 @@
     TRACE task runner (PowerShell stand-in for make).
 
     Usage:  .\tasks.ps1 <task> [extra args]
-    Tasks:  test lint fmt demo dashboard bench train up down logs smoke clean help
+    Tasks:  test lint fmt demo dashboard bench fetch-models train
+            up down logs smoke clean help
 
     If Windows reports "running scripts is disabled on this system", allow
     local scripts once for your account:
@@ -83,6 +84,11 @@ switch ($Task.ToLower()) {
         Write-Host "`nResults: eval\out\results.csv, eval\out\results_by_region.csv" -ForegroundColor Green
     }
 
+    "fetch-models" {
+        Use-Venv
+        Invoke-Step "fetch the pinned NLI model into models\" { python -m ml.fetch_models @Rest }
+    }
+
     "train" {
         Assert-Exists "ml\train_decoder.py" "M9"
         Use-Venv
@@ -133,6 +139,7 @@ TRACE task runner
   .\tasks.ps1 demo       end-to-end CLI demo
   .\tasks.ps1 dashboard  static HTML dashboard -> out\dashboard.html
   .\tasks.ps1 bench      evaluation sweeps -> eval\out\
+  .\tasks.ps1 fetch-models  download the pinned NLI model -> models\
   .\tasks.ps1 train      fine-tune the neural decoder
   .\tasks.ps1 up         docker compose up (api, worker, db, web)
   .\tasks.ps1 down       docker compose down

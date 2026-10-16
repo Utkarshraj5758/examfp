@@ -559,6 +559,24 @@ use; matching is exact; an unlisted form fails closed.
 - `out/` from earlier milestones holds a pre-M6 codebook; `demo` refuses it and
   says to delete `out/`.
 
+### A stronger model, chosen on held-out data (2026-10-17)
+
+**Approved by the owner before any download:**
+`cross-encoder/nli-deberta-v3-base@6c749ce3425cd33b46d187e45b92bbf96ee12ec7`,
+the same seven files as the small pin (`model.safetensors`, 737.7 MB; config
+and tokenizer files only; no ONNX, no `pytorch_model.bin`). Its tokenizer files
+are byte-identical to the small model's, so ² and ³ are still `[UNK]` and unit
+forms stay with the unit table. Pinned as `NLI_BASE` beside `NLI_PIN`, which is
+unchanged; `.\tasks.ps1 fetch-models --model base` fetches it.
+
+**Choice rule, fixed by the owner before any scoring.** The rule uses the
+60-pair held-out set only (`python -m eval.nli_reliability --model small
+--model base --held-out-only`), at threshold 0.5 both ways. Base is chosen only
+if it has **false acceptances ≤ 2 and accuracy ≥ 55/60, with at least one of the
+two strictly better**. A tie on both, or a trade-off, keeps small. The fixture
+is then run once (`.\tasks.ps1 fairness`) with the chosen model. Nothing on the
+fixture feeds back into the choice or the threshold.
+
 ### Open items
 
 - **M6 acceptance is open:** 3 false rejections against a budget of 2. The way

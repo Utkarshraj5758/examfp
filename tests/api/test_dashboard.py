@@ -47,3 +47,19 @@ def test_dashboard_entrypoint_lives_in_api(tmp_path: Path, monkeypatch) -> None:
     result = CliRunner().invoke(app, [str(sample), "--out", str(out), "--trials", "2"])
     assert result.exit_code == 0, result.output
     assert out.exists()
+
+
+def test_dashboard_shows_a_ranking_only_for_an_identified_verdict(sample_paper: Paper) -> None:
+    from dataclasses import replace
+
+    data = collect(sample_paper, assign(sample_paper, 100, 0), seed=0, n_trials=2)
+    assert data.demo.outcome == "IDENTIFIED"
+    assert "<th>score</th>" in build_dashboard(data)  # the named centre is the verdict
+
+    ranked = [(777_001, 9.5, False), (777_002, 8.0, False), (777_003, 1.0, True)]
+    multi = replace(data, demo=replace(data.demo, outcome="MULTI_SOURCE_SUSPECTED",
+                                       top5=ranked, verdict=["verdict: MULTI_SOURCE_SUSPECTED"]))
+    page = build_dashboard(multi)
+    assert not [cid for cid, _, _ in ranked if str(cid) in page]
+    assert "<th>score</th>" not in page and "&middot; margin" not in page  # not CSS margin
+    assert "No ranking shown" in page

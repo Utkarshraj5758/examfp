@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from examfp.cli import app
@@ -298,3 +299,69 @@ def test_multi_source_verdict_lists_causes_and_asserts_no_collusion() -> None:
     assert "outside this codebook" in text  # cause 3
     assert "most likely" not in text  # it must not assert collusion
     assert "No centre is named." in text
+
+
+# --- display: a ranking only where the verdict already names a centre ---------------------------
+DISTINCT = 900_000  # centre ids 900000-900999: no count, symbol or score can mimic them
+
+
+def _distinct_id_codebook(tmp_path: Path) -> tuple[Path, dict[int, dict[tuple[str, str], int]]]:
+    from examfp.codebook.assign import assign, dumps_codebook
+    from examfp.models import Paper
+
+    paper = Paper.model_validate_json(Path(SAMPLE).read_text(encoding="utf-8"))
+    book = {DISTINCT + c: symbols for c, symbols in assign(paper, 1000, seed=0).items()}
+    path = tmp_path / "codebook.json"
+    path.write_text(dumps_codebook(book), encoding="utf-8")
+    return path, book
+
+
+def _leak_text(kind: str, book: dict[int, dict[tuple[str, str], int]]) -> str:
+    import random
+
+    from examfp.attacks import collude
+    from examfp.cli import render_text
+    from examfp.models import Paper
+
+    paper = Paper.model_validate_json(Path(SAMPLE).read_text(encoding="utf-8"))
+    if kind == "MULTI_SOURCE_SUSPECTED":  # full paper mixed from two centres
+        rng = random.Random(0)
+        return render_text(paper, collude([book[DISTINCT + 1], book[DISTINCT + 2]], rng))
+    if kind == "INSUFFICIENT":  # one question: too few slots to name anyone
+        return "\n".join(render_text(paper, book[DISTINCT + 1]).splitlines()[3:5])
+    return "Lorem ipsum dolor sit amet, consectetur adipiscing elit."  # NO_MATCH
+
+
+def _trace_output(tmp_path: Path, kind: str, *extra: str) -> tuple[str, list[int]]:
+    codebook, book = _distinct_id_codebook(tmp_path)
+    leak = tmp_path / "leak.txt"
+    leak.write_text(_leak_text(kind, book), encoding="utf-8")
+    result = runner.invoke(
+        app, ["trace", str(leak), "--codebook", str(codebook), "--paper", SAMPLE, *extra]
+    )
+    assert result.exit_code == 0, result.output
+    assert f"outcome: {kind}" in result.output
+    return result.output, [c for c in book if str(c) in result.output]
+
+
+@pytest.mark.parametrize("kind", ["MULTI_SOURCE_SUSPECTED", "NO_MATCH", "INSUFFICIENT"])
+def test_default_output_names_no_centre_unless_identified(tmp_path: Path, kind: str) -> None:
+    output, shown = _trace_output(tmp_path, kind)
+    assert shown == [], f"centre identifiers in the default {kind} output: {shown[:5]}"
+    assert "top 5" not in output and "margin" not in output  # nothing that looks like a ranking
+
+
+def test_hypotheses_flag_reveals_the_ranking_labelled_as_not_a_verdict(tmp_path: Path) -> None:
+    output, shown = _trace_output(tmp_path, "MULTI_SOURCE_SUSPECTED", "--hypotheses")
+    assert "ranked scores (--hypotheses) - not a verdict:" in output
+    assert shown  # the ranking is there, on request
+    assert "No centre is named." in output  # the verdict itself is unchanged
+
+
+def test_ranking_is_shown_only_with_an_identified_verdict_or_on_request() -> None:
+    from examfp.cli import show_ranking
+    from examfp.decode.score import Outcome
+
+    for outcome in Outcome:
+        assert show_ranking(outcome) is (outcome is Outcome.IDENTIFIED)
+        assert show_ranking(outcome, hypotheses=True)

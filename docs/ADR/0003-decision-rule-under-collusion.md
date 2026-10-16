@@ -61,6 +61,12 @@ nobody. Any pair is printed together with its measured accuracy (98 correct of
 The output also states that the system cannot distinguish a two-centre leak from
 a larger one.
 
+**Display follows the verdict.** A ranked list of centres, and the margin, is
+shown only beside an `IDENTIFIED` verdict, where the named centre already is the
+verdict. For any other outcome it appears only under `--hypotheses`, labelled
+"not a verdict". Otherwise rank 1 would do at the display layer what the gate
+forbids in the rule (`show_ranking()`, used by the CLI and the dashboard).
+
 *History.* The first M5.5 version, `COLLUSION_SUSPECTED`, named any unique
 minimal set of up to 5 centres. The first review restricted the named set to a
 unique pair attached to the verdict. The second review demoted the pair to the

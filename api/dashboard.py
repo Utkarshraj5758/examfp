@@ -21,9 +21,9 @@ import typer
 
 from eval.bench import BenchRow, run_bench
 from examfp.attacks import crop, retype, typos
-from examfp.cli import ensure_codebook, render_text, vault_from_env, verdict_lines
+from examfp.cli import ensure_codebook, render_text, show_ranking, vault_from_env, verdict_lines
 from examfp.decode.read import read_leak
-from examfp.decode.score import score
+from examfp.decode.score import Outcome, score
 from examfp.models import Paper
 
 Codebook = dict[int, dict[tuple[str, str], int]]
@@ -142,10 +142,25 @@ def _top5_rows(top5: list[tuple[int, float, bool]]) -> str:
     return "".join(out)
 
 
+def _ranking_html(d: DemoTrace) -> str:
+    # Same rule as the CLI: a ranking only beside an IDENTIFIED verdict.
+    if not show_ranking(Outcome(d.outcome)):
+        return '<p class="note">No ranking shown: this outcome names no centre.</p>'
+    return (
+        "<table>\n          <thead><tr><th>#</th><th>centre</th><th>score</th></tr></thead>\n"
+        f"          <tbody>{_top5_rows(d.top5)}</tbody>\n        </table>"
+    )
+
+
 def build_dashboard(data: DashboardData) -> str:
-    """Return a self-contained HTML dashboard (pure function)."""
+    """Return a self-contained HTML dashboard (pure function).
+
+    Guarantees: the live trace shows ranked centres and a margin only for an
+    ``IDENTIFIED`` verdict; any other outcome shows the verdict and no ranking.
+    """
     d = data.demo
     verdict_cls = "good" if d.outcome == "IDENTIFIED" and any(t[2] for t in d.top5) else "warn"
+    margin = f" &middot; margin {d.margin:.2f}" if show_ranking(Outcome(d.outcome)) else ""
     erased = d.positions_total - d.positions_read
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -224,14 +239,11 @@ def build_dashboard(data: DashboardData) -> str:
         <pre class="leak">{html.escape(d.leak_text)}</pre>
       </div>
       <div>
-        <p class="verdict {verdict_cls}">{d.outcome} &middot; margin {d.margin:.2f}</p>
+        <p class="verdict {verdict_cls}">{d.outcome}{margin}</p>
         <p class="note">{"<br>".join(html.escape(line) for line in d.verdict)}</p>
         <p>true centre <b>{d.centre}</b> &middot; positions read <b>{d.positions_read}</b>
            / erased {erased} (of {d.positions_total})</p>
-        <table>
-          <thead><tr><th>#</th><th>centre</th><th>score</th></tr></thead>
-          <tbody>{_top5_rows(d.top5)}</tbody>
-        </table>
+        {_ranking_html(d)}
         <p class="qr">QR-code baseline: no result (mark absent from retyped text)</p>
       </div>
     </div>

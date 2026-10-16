@@ -385,9 +385,15 @@ q7 6.81, q8 8.89.
   `MULTI_SOURCE_SUSPECTED` to "name at most one pair". The code is now stricter:
   verdicts name nobody, and the pair appears only under `--hypotheses`. The rule
   is still satisfied; whether to tighten it is the owner's call.
-- **Ranked list on multi-source leaks.** The trace still prints the top 5
-  centres by score for every outcome, including `MULTI_SOURCE_SUSPECTED`. It is
-  not a verdict, but a reader could take it as one. Revisit with the rename in
-  M7.
+- **Ranked list on non-identifying outcomes.** *Fixed.* The trace, the demo and
+  the dashboard printed the top 5 centres with scores for every outcome, which
+  defeated the gate at the display layer: on a two-centre full-paper leak, the
+  default `MULTI_SOURCE_SUSPECTED` output listed both colluders at ranks 1–2 and
+  three innocent centres below them. A reader would take rank 1 as the verdict.
+  Now `show_ranking()` in `examfp/cli.py` allows a ranking (and the margin) only
+  beside an `IDENTIFIED` verdict, or under `trace --hypotheses`, where it is
+  labelled "not a verdict". The dashboard uses the same rule. Tests assert that no
+  centre identifier appears in the default output of a `MULTI_SOURCE_SUSPECTED`,
+  `NO_MATCH` or `INSUFFICIENT` trace.
 - **Contract.** *Fixed:* CLAUDE.md now promises a measured false-identification
   rate (practical mode) or a provable collusion bound (provable mode).

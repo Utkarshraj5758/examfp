@@ -172,8 +172,9 @@ def trace(
         bool,
         typer.Option(
             "--hypotheses/--no-hypotheses",
-            help="For MULTI_SOURCE_SUSPECTED, also print the opt-in pair hypothesis "
-            "with its measured accuracy. Investigative only.",
+            help="Investigative output, never a verdict: the ranked scores for any "
+            "outcome and, for MULTI_SOURCE_SUSPECTED, the pair hypothesis with its "
+            "measured accuracy.",
         ),
     ] = False,
 ) -> None:
@@ -187,12 +188,16 @@ def trace(
 
     total = len(paper_model.positions())
     read = result.positions_used
-    typer.echo(f"outcome: {result.outcome.value}   margin: {result.margin:.2f}")
+    ranking = show_ranking(result.outcome, hypotheses)
+    margin = f"   margin: {result.margin:.2f}" if ranking else ""
+    typer.echo(f"outcome: {result.outcome.value}{margin}")
     typer.echo(f"positions read: {read} / erased: {total - read} (of {total})")
-    typer.echo("top 5 centres:")
-    for rank, (centre, sc) in enumerate(result.ranked[:5]):
-        tag = "  (consistent)" if rank < result.consistent else ""
-        typer.echo(f"  centre {centre}: {sc:.2f}{tag}")
+    if ranking:
+        typer.echo("top 5 centres:" if result.outcome is Outcome.IDENTIFIED
+                   else "ranked scores (--hypotheses) - not a verdict:")
+        for rank, (centre, sc) in enumerate(result.ranked[:5]):
+            tag = "  (consistent)" if rank < result.consistent else ""
+            typer.echo(f"  centre {centre}: {sc:.2f}{tag}")
     typer.echo("recovered positions:")
     for (qid, slot), (symbol, conf) in observations.items():
         typer.echo(f"  {qid}::{slot} = {symbol} (conf {conf:.2f})")
@@ -209,6 +214,17 @@ def trace(
         else:
             typer.echo(f"hypothesis (--hypotheses): not applicable - the outcome is "
                        f"{result.outcome.value}.")
+
+
+def show_ranking(outcome: Outcome, hypotheses: bool = False) -> bool:
+    """Whether a ranked list of centres may be displayed.
+
+    Guarantees: by default a ranking appears only beside an ``IDENTIFIED``
+    verdict, where the named centre already is the verdict. For every other
+    outcome it appears only on explicit request (``--hypotheses``), so rank 1 is
+    never on screen as a stand-in for a verdict the decision rule did not reach.
+    """
+    return outcome is Outcome.IDENTIFIED or hypotheses
 
 
 def verdict_lines(result: ScoreResult) -> list[str]:
@@ -330,10 +346,11 @@ def demo(
     typer.echo("")
     typer.echo(f"true centre: {centre}")
     typer.echo(f"positions read: {read} / erased: {total - read} (of {total})")
-    typer.echo("top 5 centres:")
-    for rank, (cid, sc) in enumerate(result.ranked[:5], start=1):
-        marker = "  <- true" if cid == centre else ""
-        typer.echo(f"  {rank}. centre {cid}: {sc:.2f}{marker}")
+    if show_ranking(result.outcome):
+        typer.echo("top 5 centres:")
+        for rank, (cid, sc) in enumerate(result.ranked[:5], start=1):
+            marker = "  <- true" if cid == centre else ""
+            typer.echo(f"  {rank}. centre {cid}: {sc:.2f}{marker}")
     for line in verdict_lines(result):
         typer.echo(line)
     typer.echo(f"elapsed: {elapsed_ms:.0f} ms")

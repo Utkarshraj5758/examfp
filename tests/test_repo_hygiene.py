@@ -114,3 +114,23 @@ def test_adr_records_two_modes() -> None:
     adr = (ROOT / "docs" / "ADR" / "0001-two-modes.md").read_text(encoding="utf-8")
     assert "Status" in adr
     assert "practical" in adr.lower() and "provable" in adr.lower()
+
+
+# --- architecture -----------------------------------------------------------------
+_TOOLING = {"api", "eval", "tests", "ml", "service"}
+
+
+def test_core_library_imports_no_repo_tooling() -> None:
+    import ast
+
+    offenders = []
+    for path in (ROOT / "examfp").rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            names: list[str] = []
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+                names = [node.module]
+            offenders += [f"{path.name}: {n}" for n in names if n.split(".")[0] in _TOOLING]
+    assert offenders == []

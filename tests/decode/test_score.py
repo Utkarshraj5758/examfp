@@ -44,7 +44,8 @@ def test_lorem_yields_no_match(sample_paper: Paper, book) -> None:  # type: igno
 
 def test_one_question_leak_is_insufficient_not_wrong(sample_paper: Paper, book) -> None:  # type: ignore[no-untyped-def]
     target = 500
-    # Just the first question (near-constant across centres -> ambiguous).
+    # Just the first question: its 5 slots allow only 2*7*3*2*2 = 168 combinations,
+    # so several of the 1,000 centres share any one of them -> ambiguous.
     q1 = "\n".join(_render(sample_paper, book[target]).splitlines()[3:5])
     result = score(read_leak(q1, sample_paper), book)
     assert result.outcome is Outcome.INSUFFICIENT

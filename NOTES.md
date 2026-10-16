@@ -83,6 +83,9 @@ codeword — so every position carries information and accuracy should stop
 depending on which questions leak. M5 must report accuracy by leaked-question
 position, before vs after.
 
+**Status: fixed in M5.** No position is constant any more, and early, middle and
+late leaks perform alike — see the M5 section below.
+
 ### Smaller Phase 0 notes
 
 - PDF text extraction inserts or drops spaces around kerned pairs (`AV` → `A V`);
@@ -127,18 +130,116 @@ position, before vs after.
 - **Plaintext codebook on disk.** `generate`, `demo` and `dashboard` write
   `out/codebook.json` unencrypted, violating security rule 5. `.gitignore`
   keeps it out of git, but the real fix is envelope encryption (M12).
+  *M5: partly resolved — `--encrypt` writes only an AES-GCM envelope. Plaintext
+  is still the default so the demo runs with zero setup.*
 - **Layout drift.** `api/dashboard.py` and `eval/` predate the CLAUDE.md layout
   (`service/`, `web/`). `examfp/cli.py`'s `dashboard` command imports
   `api.dashboard`, so the core library reaches into repo tooling — against
   "the core library is pure". Resolve when M12/M13 replace the dashboard.
+  *M5: dependency inverted — the command moved to `python -m api.dashboard` and
+  a hygiene test forbids `examfp/` importing repo tooling. `api/` and `eval/`
+  still predate the layout.*
 - **Stale placeholder text.** `Paper.capacity_report` prints
   `k = <unset> (... pending M6)`, but PLAN.md now assigns measuring `k` to M11.
   `models.py` is frozen; correct it in M11 under explicit instruction.
+  *M5: fixed on explicit instruction (one string in `models.py`).*
 
 ### Deferred dependency choices
 
 Pinned only what CLAUDE.md / PLAN.md name unambiguously. Chosen later, in the
 milestone that needs them: worker framework (Celery vs RQ, M12), JWT library
-(M12), AES-GCM library and whether it lives in core or service (M12), SymPy
+(M12), ~~AES-GCM library and whether it lives in core or service~~ (decided in
+M5: `cryptography` in core, as CLAUDE.md places `crypto.py` there), SymPy
 (M6), DeBERTa tokenizer extras such as `sentencepiece`/`protobuf` (M6/M9), OCR
 engines (M7), plotting for figures (M10/M11), and a transitive lock file.
+
+---
+
+## M5 — Reed–Solomon codebook (2026-10-15)
+
+**Codec.** `examfp/codebook/rs.py`: RS over GF(256), QR-code parameters
+(primitive polynomial 0x11D, alpha = 2, first root alpha^0), systematic
+encoding, Forney erasure decoding, standard library only. It reproduces three
+published vectors (ISO/IEC 18004 "HELLO WORLD" and "01234567" 1-M, Wikiversity
+"RS codes for coders"), each cross-checked against the independent `reedsolo`.
+Hypothesis: any `k` surviving symbols recover the codeword; a corrupted survivor
+is refused, never absorbed.
+
+**Packing** ([ADR 0002](docs/ADR/0002-rs-slot-packing.md)). Each GF(256) symbol is
+a group of slots read in mixed radix, with capacity >= 256 (injective) and a
+most-significant place value <= 255 (every slot varies). The sample paper gives
+**n = 7** symbols; 1,000 centres need **k = 2**, so up to 5 symbols may be lost.
+`assign` keeps its signature. No position is constant over 1,000 centres
+(previously 20 of 31).
+
+### Before / after (sample paper, 1,000 centres, retype + 3% typos, 200 trials per cell)
+
+Random crop of `k` questions — correct identification:
+
+| k | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| mixed-radix (before) | 0.0 | 9.5 | 27.5 | 53.5 | 71.0 | 91.0 | 100 | 100 |
+| Reed–Solomon (after) | 1.5 | 91.0 | 99.5 | 100 | 100 | 100 | 100 | 100 |
+
+Leaks drawn only from one third of the paper — correct identification:
+
+| region (questions) | k | mixed-radix | Reed–Solomon |
+|---|--:|--:|--:|
+| early (q1–q3) | 1 / 2 / 3 | 0 / 0 / 0 | 1.0 / 94.5 / 100 |
+| middle (q4–q6) | 1 / 2 / 3 | 0 / 0 / 0 | 2.0 / 90.0 / 100 |
+| late (q7–q8) | 1 / 2 | 0 / 100 | 1.0 / 99.0 |
+
+False identification is **0% in every cell, for both codebooks**. Every miss is
+`INSUFFICIENT`. The mixed-radix k-sweep reproduces the Phase 0 numbers exactly,
+confirming the baseline was preserved verbatim. Raw data: `eval/out/results.csv`,
+`eval/out/results_by_region.csv` (`.\tasks.ps1 bench`, ~30 s).
+
+**Findings.**
+- Position dependence is gone: before, early or middle leaks were worthless at
+  any size; now every third performs alike.
+- **One question is still not enough, by arithmetic, not by code.** A question
+  offers at most a few hundred slot combinations (q1: 168, q2: 476) for 1,000
+  centres, so several centres share any one of them. Two questions reach about
+  90%; three, 100%.
+- The trace still scores slots against every centre (`score.py`) rather than
+  decoding RS directly. RS supplies the spread and distance; direct erasure
+  decoding (`complete_symbols`) needs `k` *intact* groups, and groups span
+  questions (ADR 0002).
+
+### Decisions
+
+- **Crypto randomness.** Data keys and nonces come from `os.urandom`, the one
+  deliberate exception to the seeded-RNG rule: seeded keys would be predictable.
+  The source is injectable so tests stay deterministic.
+- **Envelope design.** Fresh AES-256-GCM data key per envelope, wrapped by the
+  vault's KEK (also AES-256-GCM). Associated data binds format, KEK id and
+  purpose. `EnvVault` is the dev stub (`TRACE_KEK`, base64 of 32 bytes); M12 adds
+  a real vault behind the same `Vault` protocol. Generate a dev key with
+  `python -c "import base64,secrets;print(base64.b64encode(secrets.token_bytes(32)).decode())"`.
+- **`cryptography==50.0.2`** pinned in core, resolved with wheels for Python 3.11
+  and 3.12 on Windows alongside every other pin. No cipher is implemented here.
+
+### Bugs the new codebook exposed (fixed)
+
+- `leak` rebuilt one centre as `assign(paper, centre + 1)[centre]`. That was
+  only valid for the per-centre mixed-radix code; RS codewords depend on the
+  total centre count. `leak` now takes `--centres` (default 1000, as `generate`).
+- `demo`/`dashboard` reused any codebook already in `out/`, including a pre-M5
+  one, and reported the old behaviour. They now refuse a codebook that is not the
+  current demo codebook and say to delete `out/`; they never overwrite it.
+- `tasks.ps1` was an advanced script (because of `[Parameter()]` attributes),
+  so forwarded arguments starting `--out` collided with `-OutVariable` /
+  `-OutBuffer`. It now uses a plain `param()` and passes `$args` through.
+
+### Open items
+
+- **Codebook versioning.** Codebook files carry no scheme or version metadata,
+  so staleness is detected only by comparing with the demo codebook. CLAUDE.md
+  requires every trace to record the codebook version: add a versioned header
+  (M12).
+- **Rendered papers are codebook-equivalent.** Each `out/centre_*.txt` reveals
+  that centre's codeword, so the full set reveals the codebook even when it is
+  encrypted. Treat rendered papers as secrets: delete after printing, and
+  encrypt or keep them in the service in M12.
+- **Plaintext by default.** `--encrypt` is opt-in; flip the default once a
+  vault is part of normal setup (M12).

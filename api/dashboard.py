@@ -4,6 +4,9 @@ No server, no network, no external assets: :func:`build_dashboard` is a pure
 function that turns collected results into one HTML string.  The side-effecting
 :func:`collect` (runs a live trace + robustness sweep) and the file write live
 here per the project convention that side effects stay in ``cli`` / ``api``.
+
+Run it with ``python -m api.dashboard [paper.json] [--encrypt]``. This module
+depends on the core library, never the other way round.
 """
 
 from __future__ import annotations
@@ -12,10 +15,13 @@ import html
 import random
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Annotated
+
+import typer
 
 from eval.bench import BenchRow, run_bench
 from examfp.attacks import crop, retype, typos
-from examfp.cli import render_text
+from examfp.cli import ensure_codebook, render_text, vault_from_env
 from examfp.decode.read import read_leak
 from examfp.decode.score import score
 from examfp.models import Paper
@@ -230,3 +236,30 @@ def write_dashboard(data: DashboardData, path: Path) -> None:
     """Write the dashboard HTML to ``path``."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(build_dashboard(data), encoding="utf-8")
+
+
+app = typer.Typer(add_completion=False, help="Build the static HTML dashboard.")
+
+
+@app.command()
+def main(
+    paper_path: Annotated[Path, typer.Argument(help="Path to the paper JSON.")] = Path(
+        "data/papers/sample.json"
+    ),
+    out: Annotated[Path, typer.Option(help="Output HTML file.")] = Path("out/dashboard.html"),
+    trials: Annotated[int, typer.Option(help="Sweep trials per k.")] = 100,
+    seed: Annotated[int, typer.Option(help="RNG seed.")] = 0,
+    encrypt: Annotated[
+        bool, typer.Option("--encrypt/--no-encrypt", help="Seal the codebook (key: TRACE_KEK).")
+    ] = False,
+) -> None:
+    """Build a self-contained static HTML dashboard."""
+    vault = vault_from_env(encrypt)
+    paper = Paper.model_validate_json(paper_path.read_text(encoding="utf-8"))
+    book = ensure_codebook(paper, Path("out"), vault)
+    write_dashboard(collect(paper, book, seed=seed, n_trials=trials), out)
+    typer.echo(f"wrote dashboard to {out}  (open it in a browser)")
+
+
+if __name__ == "__main__":
+    app()

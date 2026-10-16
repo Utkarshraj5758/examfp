@@ -21,14 +21,13 @@ Measured baseline to beat: **91% identification at 6 leaked questions, 100% at
 
 ## Phase 1 — Make it correct (Oct 2026)
 
-### [~] M4 — Repo hardening and task runner
+### [x] M4 — Repo hardening and task runner
 
 Bring the existing code up to industry hygiene before adding anything.
 
-**Status (2026-10-15):** built. Local acceptance passed on Python 3.11 and 3.12
+**Status:** done. Local acceptance passed on Python 3.11 and 3.12
 (clean clone, `pip install -e ".[dev]"`, `.\tasks.ps1 test` 110 green, lint
-clean). **Remaining:** create the git repository and GitHub remote, push a
-branch, and see CI green — then tick this box. See NOTES.md, M4.
+clean); CI green on the pushed commit `7193e8c` (2026-10-15).
 
 **Build:** `pyproject.toml` with pinned deps and extras (`core`, `ml`,
 `service`, `dev`); `tasks.ps1`; `.gitignore` (out/, *.pdf, .venv, eval/out,
@@ -52,10 +51,17 @@ pushed branch; `pip install -e ".[dev]"` works from scratch.
 
 ---
 
-### [ ] M5 — Reed–Solomon codebook (replaces crude assign)
+### [x] M5 — Reed–Solomon codebook (replaces crude assign)
 
 Removes the known weakness: identification currently depends on *which*
 questions leak.
+
+**Status:** done (2026-10-15, branch `m5-reed-solomon`). Erasure property tests
+and three published vectors pass; no position is constant over 1,000 centres;
+the end-to-end trace still names the right centre; early, middle and late leaks
+now perform alike (early/middle went from 0% to 100% at 3 questions). Also
+delivered: `--encrypt` (AES-GCM envelope), the `api/` dependency inversion, and
+the M11 placeholder fix. Numbers in NOTES.md, M5.
 
 **Build:** `codebook/rs.py` — GF(256) arithmetic with log/antilog tables,
 systematic RS encoding, erasure decoding via Forney. No dependency; implement

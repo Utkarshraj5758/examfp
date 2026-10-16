@@ -68,8 +68,11 @@ def test_reliability_counts_both_error_kinds() -> None:
 
 def test_comparison_table_has_one_line_per_model() -> None:
     small = Reliability(55, 60, 2, 30, 3, 30)
-    lines = comparison_table([("org/a@1", small), ("org/b@2", Reliability(60, 60, 0, 30, 0, 30))])
+    long_name = "org/" + "b" * 70 + "@2"
+    lines = comparison_table([("org/a@1", small), (long_name, Reliability(60, 60, 0, 30, 0, 30))])
     assert len(lines) == 3
+    # Columns line up however long the version string is.
+    assert len({line.index(" ", len(long_name)) for line in lines}) == 1
     assert "55/60 = 91.7%" in lines[1] and "81.6-97.2%" in lines[1]
     assert "2/30" in lines[1] and lines[1].endswith("3/30")
     assert "60/60 = 100.0%" in lines[2] and lines[2].endswith("0/30")

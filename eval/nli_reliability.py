@@ -132,13 +132,14 @@ def reliability(rows: list[Scored]) -> Reliability:
 
 def comparison_table(results: list[tuple[str, Reliability]]) -> list[str]:
     """One line per model: accuracy, 95% Clopper-Pearson CI, false acceptances and rejections."""
-    lines = [f"{'model':<62} {'accuracy':<15} {'95% CI':<12} {'FA':<6} FR"]
+    width = max([len("model")] + [len(version) for version, _ in results])
+    lines = [f"{'model':<{width}}  {'accuracy':<15} {'95% CI':<12} {'FA':<6} FR"]
     for version, rel in results:
         low, high = clopper_pearson(rel.correct, rel.n)
         accuracy = f"{rel.correct}/{rel.n} = {100 * rel.correct / rel.n:.1f}%"
         interval = f"{100 * low:.1f}-{100 * high:.1f}%"
         accepted = f"{rel.false_acceptances}/{rel.different}"
-        lines.append(f"{version:<62} {accuracy:<15} {interval:<12} {accepted:<6} "
+        lines.append(f"{version:<{width}}  {accuracy:<15} {interval:<12} {accepted:<6} "
                      f"{rel.false_rejections}/{rel.equivalent}")
     return lines
 

@@ -10,24 +10,38 @@ measured on the sample paper (`data/papers/sample.json`: 8 questions,
 
 ### F1 — Capacity: one paper cannot carry a provable code
 
-Tardos (2003) needs code length `m = ceil(100 * c^2 * ln(n/eps))`, constant kept
-literally. The sample paper offers **31 positions** (59.5 payload bits; 51 Tardos
-bits after taking `floor(log2(alphabet))` per position).
+Tardos (2003) needs code length `m = 100 * c^2 * k` with
+`k = ceil(ln(n/eps))` (Tardos's `k = ceil(ln(1/eps_1))`, union bound
+`eps_1 = eps/n`), constants kept literally. The sample paper offers **31
+positions** (59.5 payload bits before M6, 58.5 after; 51 Tardos bits after taking
+`floor(log2(alphabet))` per position).
 
-Required positions, `n = 500` centres:
+*Corrected 2026-10-17:* until then the code and this table used the unrounded
+`ln(n/eps)` in place of `k`. That gave `m` and `Z` smaller than the proof
+requires, the unsafe direction. The table also mixed rounding (nearest integer
+here, ceiling in the text). Every figure below now uses the ceiling.
+
+Required positions, `n = 500` centres (`k` = 11, 14, 21 for the three `eps`):
 
 | c | eps = 1e-2 | eps = 1e-3 | eps = 1e-6 |
 |---|-----------:|-----------:|-----------:|
-| 2 | 4,328 | 5,249 | 8,012 |
-| 3 | 9,738 | 11,810 | 18,027 |
-| 5 | 27,049 | 32,806 | 50,075 |
+| 2 | 4,400 | 5,600 | 8,400 |
+| 3 | 9,900 | 12,600 | 18,900 |
+| 5 | 27,500 | 35,000 | 52,500 |
 
 No cell is reachable. At `eps = 1e-6` the sample supports `c_max = 0.12`; a
 realistic 60-question paper (~3.9 positions/question, ~232 positions) reaches
-only `c_max = 0.34` — not even one colluder. Multi-paper layering makes the
-length representable: at `n = 500, c = 3, eps = 1e-6` a centre's codeword is
-18,028 bits = **354 papers per session** at 51 bits/paper. In a coin-strategy
-collusion demo the accuser caught all three colluders and accused no innocent.
+only `c_max = 0.33` (0.34 under the unrounded form) — not even one colluder.
+Multi-paper layering makes the length representable: at
+`n = 500, c = 3, eps = 1e-6` a centre's codeword is 18,900 bits = **371 papers
+per session** at 51 bits/paper (354 under the unrounded form). In a
+coin-strategy collusion demo the accuser caught all three colluders and accused
+no innocent, both before and after the correction (CLI defaults n = 100, c = 3,
+eps = 0.01: m = 9,000, Z = 600).
+
+*Still unrounded:* `Paper.capacity_report` in the frozen `models.py` prints
+`m = 100*c^2*ln(n/eps)` for its theoretical line and feasibility grid. Changing
+it needs explicit instruction; until then its figures are slightly low.
 
 **Consequence:** two modes that must never be conflated — see
 [ADR 0001](docs/ADR/0001-two-modes.md). The empirical constant `k` is still

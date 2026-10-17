@@ -23,13 +23,25 @@ def test_bit_widths_are_floor_log2_alphabet(sample_paper: Paper) -> None:
     assert bits_per_paper(sample_paper) == sum(widths.values())
 
 
-def test_parameters_use_literal_constant(sample_paper: Paper) -> None:
+def test_parameters_follow_tardos_2003(sample_paper: Paper) -> None:
+    # Tardos: k = ceil(ln(1/eps_1)), m = 100 c^2 k, Z = 20 c k, t = 1/(300 c). The union
+    # bound over n centres gives eps_1 = eps / n, so k = ceil(ln(n / eps)).
     code = TardosCode.build(sample_paper, n_centres=500, c=3, eps=1e-6, seed=0)
-    ln = log(500 / 1e-6)
-    assert code.m == ceil(100 * 9 * ln)  # literal 100*c^2*ln(n/eps)
-    assert code.threshold == pytest.approx(20 * 3 * ln)
+    log_factor = ceil(log(500 / 1e-6))
+    assert log_factor == 21  # ln(5e8) = 20.03: the ceiling is not a rounding detail
+    assert code.m == 100 * 3 * 3 * log_factor == 18_900
+    assert code.threshold == 20 * 3 * log_factor == 1_260
     assert code.t == pytest.approx(1 / (300 * 3))
-    assert code.k == ceil(code.m / bits_per_paper(sample_paper))
+    assert code.k == ceil(code.m / bits_per_paper(sample_paper))  # papers per session
+
+
+def test_the_ceiling_never_shortens_the_code(sample_paper: Paper) -> None:
+    # The unrounded form gave a shorter code and a lower threshold: the unsafe direction.
+    for n, c, eps in ((100, 3, 0.01), (500, 2, 1e-3), (1000, 5, 1e-6)):
+        code = TardosCode.build(sample_paper, n_centres=n, c=c, eps=eps, seed=0)
+        assert code.m >= ceil(100 * c * c * log(n / eps))
+        assert code.threshold >= 20 * c * log(n / eps)
+        assert code.m == 100 * c * c * ceil(log(n / eps))
 
 
 def test_build_is_deterministic(sample_paper: Paper) -> None:

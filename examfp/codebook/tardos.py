@@ -4,14 +4,18 @@ This is a faithful reproduction of Tardos's probabilistic fingerprinting code
 (G. Tardos, "Optimal Probabilistic Fingerprint Codes", STOC 2003) — not a new
 construction:
 
-* code length ``m = ceil(100 * c^2 * ln(n / eps))``  (literal constant kept),
+* ``k = ceil(ln(n / eps))`` (Tardos's ``k = ceil(ln(1/eps_1))`` with the union
+  bound ``eps_1 = eps / n``), code length ``m = 100 * c^2 * k`` (literal constant),
 * per-position bias ``p_i = sin^2(r_i)`` with ``r_i`` uniform on
   ``[t', pi/2 - t']``, ``t' = arcsin(sqrt(t))`` and cutoff ``t = 1/(300 c)``
   (the arcsine distribution on ``[t, 1-t]``),
 * codeword bit ``X_{j,i} = 1`` with probability ``p_i``,
 * one-sided accusation score ``S_j = sum_{i: y_i=1} g(X_{j,i}, p_i)`` with
   ``g(1,p)=sqrt((1-p)/p)``, ``g(0,p)=-sqrt(p/(1-p))``; accuse when ``S_j > Z``,
-  ``Z = 20 * c * ln(n / eps)``.
+  ``Z = 20 * c * k``.
+
+Until 2026-10-17 the code used the unrounded ``ln(n / eps)`` in place of ``k``,
+which made ``m`` and ``Z`` smaller than the proof requires (NOTES.md, F1).
 
 Adapting the binary code to our q-ary channel: each fingerprint position of a
 paper carries ``floor(log2(alphabet))`` codeword bits, packed MSB-first into the
@@ -77,10 +81,13 @@ class TardosCode:
         """Build the code (biases + codewords) from a seeded RNG."""
         if n_centres < 1 or c < 1 or not 0.0 < eps < 1.0:
             raise ValueError("require n_centres>=1, c>=1, 0<eps<1")
-        ln = log(n_centres / eps)
-        m = ceil(100 * c * c * ln)
+        # Tardos's k = ceil(ln(1/eps_1)); the union bound over n centres gives
+        # eps_1 = eps / n. The ceiling comes before the multiplication: without it m
+        # and Z fall short of what the proof requires.
+        log_factor = ceil(log(n_centres / eps))
+        m = 100 * c * c * log_factor
         t = 1.0 / (300 * c)
-        threshold = 20 * c * ln
+        threshold = float(20 * c * log_factor)
         layout = position_bit_widths(paper)
         bpp = sum(w for _, w in layout)
         if bpp < 1:

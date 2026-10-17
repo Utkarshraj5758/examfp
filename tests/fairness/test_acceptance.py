@@ -99,3 +99,18 @@ def test_sample_paper_passes_every_check(
     failing = [(r.question_id, r.slot, r.values, sorted(r.failed)) for r in reports
                if not r.passed]
     assert failing == []
+
+
+def test_generate_passes_the_sample_paper_through_the_real_checker(
+    tmp_path: Any, local_nli: CrossEncoderNli
+) -> None:
+    from typer.testing import CliRunner
+
+    from examfp.cli import app
+
+    out = tmp_path / "out"
+    result = CliRunner().invoke(app, [
+        "generate", str(SAMPLE), "--centres", "5", "--out", str(out), "--plaintext",
+        "--model-cache", str(local_nli.model_dir.parent.parent)])
+    assert result.exit_code == 0, result.output
+    assert "fairness: all 414 variants pass" in result.output

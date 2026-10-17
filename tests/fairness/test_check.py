@@ -307,3 +307,23 @@ def test_spy_proves_only_same_number_wording_pairs_reach_the_model(sample_paper:
     for premise, hypothesis in spy.calls:
         assert numbers(premise) in reference_numbers
         assert numbers(hypothesis) in reference_numbers
+
+
+# --- the check names each channel runs (generate --skip-fairness lists them) ------------------
+def test_checks_table_matches_what_the_checker_runs(sample_paper: Paper) -> None:
+    from examfp.fairness.check import CHECKS
+
+    reports = FairnessChecker(SpyNli(), common).check_paper(sample_paper)
+    seen = {r.channel for r in reports}
+    assert seen == set(CHECKS)
+    for report in reports:
+        assert tuple(c.name for c in report.checks) == CHECKS[report.channel], report
+
+
+def test_planned_checks_counts_the_variants_check_paper_judges(sample_paper: Paper) -> None:
+    from examfp.fairness.check import planned_checks
+
+    planned = planned_checks(sample_paper)
+    reports = FairnessChecker(SpyNli(), common).check_paper(sample_paper)
+    assert planned == Counter(r.channel for r in reports)
+    assert sum(planned.values()) == 414

@@ -696,6 +696,18 @@ flag changed (the paper did not change).
 paper's 29 pairs fall below 11; the count is 17, now pinned by
 `tests/eval/test_separation_sweep.py`.
 
+### Fairness is now part of authoring (2026-10-17)
+
+The audit found the checker outside the authoring path: `generate` never called
+it, so a paper that failed it could still be generated and printed. `generate`
+now runs `FairnessChecker.check_paper` after the vault check and before writing
+anything. Any failing variant, or a checker that cannot run (model not fetched,
+extra not installed), stops it with each failure listed. `--skip-fairness` is
+the explicit opt-out, and it prints every skipped check by channel with variant
+counts. The checks per channel live in `examfp.fairness.check.CHECKS`, which a
+test keeps equal to what the checker runs. On the sample paper, with the real
+model: all 414 variants pass, about 35 s with a cold model load.
+
 ### Open items
 
 - **M6 acceptance is open:** 9 false rejections against a budget of 2, all

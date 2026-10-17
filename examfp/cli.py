@@ -44,6 +44,9 @@ from examfp.decode.score import (
     score,
     unique_pair_hypothesis,
 )
+from examfp.fairness.check import CHECKS, Channel, FairnessChecker, planned_checks
+from examfp.fairness.nli import CrossEncoderNli, nli_model_dir
+from examfp.fairness.readability import Zipf, wordfreq_zipf
 from examfp.models import Paper
 
 app = typer.Typer(add_completion=False, help="examfp end-to-end trace.")
@@ -153,15 +156,29 @@ def generate(
         typer.Option("--plaintext", help="Opt out of encryption: write codebook.json in clear "
                      "(a secret on disk; prints a warning naming the file)."),
     ] = False,
+    skip_fairness: Annotated[
+        bool,
+        typer.Option("--skip-fairness", help="Opt out of the fairness checker (prints every "
+                     "check skipped; the paper is then not machine-checked)."),
+    ] = False,
+    model_cache: Annotated[
+        Path, typer.Option(help="Local model cache holding the pinned NLI model.")
+    ] = Path("models"),
 ) -> None:
     """Generate per-centre text papers and a codebook, sealed unless ``--plaintext``.
 
     Guarantees: by default only an AES-GCM envelope (key from ``TRACE_KEK``) is
     written, and a missing or unusable key stops the command before anything is
     written; ``--plaintext`` writes ``codebook.json`` and warns, naming the file.
+    Unless ``--skip-fairness``, every variant must pass the fairness checker
+    first: one failing variant, or a checker that cannot run, writes nothing.
     """
     vault = None if plaintext else _sealing_vault()  # fail before writing anything
     paper = Paper.model_validate_json(paper_path.read_text(encoding="utf-8"))
+    if skip_fairness:
+        _warn_fairness_skipped(paper)
+    else:
+        _require_fairness(paper, model_cache)
     codebook = assign(paper, centres, seed)
     write_centre_papers(paper, codebook, out)
     path = write_codebook(codebook, out, vault)
@@ -172,6 +189,55 @@ def generate(
     elif (out / CODEBOOK_PLAIN).exists():
         typer.echo(f"warning: an earlier plaintext {CODEBOOK_PLAIN} is still in {out}",
                    err=True)
+
+
+def build_fairness_checker(model_cache: Path) -> FairnessChecker:
+    """The checker ``generate`` runs: the pinned NLI model and wordfreq, both loaded lazily.
+
+    Guarantees: constructing it reads no model file and imports neither torch nor
+    wordfreq; they load on first use, and a missing one raises then.
+    """
+    found: list[Zipf] = []
+
+    def zipf(word: str) -> float:
+        if not found:
+            found.append(wordfreq_zipf())
+        return found[0](word)
+
+    return FairnessChecker(CrossEncoderNli(nli_model_dir(model_cache)), zipf)
+
+
+def _require_fairness(paper: Paper, model_cache: Path) -> None:
+    """Exit before anything is written unless every variant passes the fairness checker."""
+    try:
+        reports = build_fairness_checker(model_cache).check_paper(paper)
+    except (FileNotFoundError, ImportError) as exc:
+        raise _fail(f"cannot run the fairness checker: {exc}. Fetch the model "
+                    "(.\\tasks.ps1 fetch-models), install the fairness extra, or pass "
+                    "--skip-fairness.") from None
+    failing = [r for r in reports if not r.passed]
+    if not failing:
+        typer.echo(f"fairness: all {len(reports)} variants pass")
+        return
+    for report in failing:
+        typer.echo(f"  {report.question_id}.{report.slot} {report.values}: "
+                   f"{', '.join(sorted(report.failed)) or 'not every check ran'}", err=True)
+        for check in report.checks:
+            if check.ran and not check.passed:
+                typer.echo(f"      {check.name}: {check.reason}", err=True)
+    raise _fail(f"refusing to generate: {len(failing)} of {len(reports)} variants fail the "
+                "fairness checker (pass --skip-fairness to override)")
+
+
+def _warn_fairness_skipped(paper: Paper) -> None:
+    """Name every check ``--skip-fairness`` skipped, channel by channel."""
+    planned = planned_checks(paper)
+    typer.echo("warning: fairness checks skipped (--skip-fairness); this paper is NOT "
+               "machine-checked:", err=True)
+    for channel in Channel:
+        if planned[channel]:
+            typer.echo(f"  {channel.value}: {', '.join(CHECKS[channel])} "
+                       f"({planned[channel]} variants)", err=True)
 
 
 def _sealing_vault() -> Vault:

@@ -77,6 +77,16 @@ class Channel(StrEnum):
     OPTION_ORDER = "option_order"
 
 
+# The checks each channel runs, in order (a test keeps this equal to the reports).
+CHECKS: dict[Channel, tuple[str, ...]] = {
+    Channel.WORDING: ("separation", "ask", "numbers", "nli", "readability"),
+    Channel.INSTRUCTION: ("separation", "numbers", "instruction", "readability"),
+    Channel.UNIT_FORM: ("separation", "numbers", "units", "readability"),
+    Channel.NUMERIC: ("answer", "digits", "trivial", "steps"),
+    Channel.OPTION_ORDER: ("options",),
+}
+
+
 @dataclass(frozen=True)
 class CheckResult:
     """One rule's verdict. ``ran=False`` means an earlier check stopped the channel."""
@@ -130,6 +140,20 @@ def slot_channel(slot: Slot) -> Channel:
     if len(slot.fills) == 1 and instructions.instruction_class(slot.variants[0].values[0]):
         return Channel.INSTRUCTION
     return Channel.WORDING
+
+
+def planned_checks(paper: Paper) -> Counter[Channel]:
+    """How many variants :meth:`FairnessChecker.check_paper` judges in each channel.
+
+    Guarantees: the counts sum to the number of reports ``check_paper`` returns.
+    """
+    planned: Counter[Channel] = Counter()
+    for question in paper.questions:
+        for slot in question.slots:
+            channel = slot_channel(slot)
+            judged_reference = channel in (Channel.NUMERIC, Channel.OPTION_ORDER)
+            planned[channel] += slot.alphabet if judged_reference else slot.alphabet - 1
+    return planned
 
 
 def numbers(text: str) -> Counter[str]:

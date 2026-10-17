@@ -14,6 +14,20 @@ runner = CliRunner()
 SAMPLE = str(Path(__file__).resolve().parents[1] / "data" / "papers" / "sample.json")
 
 
+@pytest.fixture(autouse=True)
+def model_free_fairness(monkeypatch: pytest.MonkeyPatch) -> None:
+    """generate runs the fairness checker; here with a stand-in NLI that entails all.
+
+    The real model runs in tests/fairness/test_acceptance.py (local_model).
+    """
+    from examfp import cli
+    from examfp.fairness.check import FairnessChecker
+    from tests.fairness.support import SpyNli, common
+
+    monkeypatch.setattr(cli, "build_fairness_checker",
+                        lambda _cache: FairnessChecker(SpyNli(), common))
+
+
 def test_generate_writes_files_and_codebook(tmp_path: Path) -> None:
     out = tmp_path / "out"
     result = runner.invoke(
@@ -383,3 +397,73 @@ def test_ranking_is_shown_only_with_an_identified_verdict_or_on_request() -> Non
     for outcome in Outcome:
         assert show_ranking(outcome) is (outcome is Outcome.IDENTIFIED)
         assert show_ranking(outcome, hypotheses=True)
+
+
+# --- generate runs the fairness checker before writing anything ----------------------------------
+def _unfair_paper(tmp_path: Path) -> Path:
+    """The sample paper with one extra q3 variant that needs fewer carries (ADR 0004)."""
+    import json
+
+    data = json.loads(Path(SAMPLE).read_text(encoding="utf-8"))
+    q3 = next(q for q in data["questions"] if q["id"] == "q3")
+    dims = next(s for s in q3["slots"] if s["name"] == "dims")
+    dims["variants"].append({"values": ["20", "72"]})
+    path = tmp_path / "unfair.json"
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+def test_generate_reports_the_fairness_check(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    result = runner.invoke(app, ["generate", SAMPLE, "--centres", "5", "--out", str(out),
+                                 "--plaintext"])
+    assert result.exit_code == 0, result.output
+    assert "fairness: all 414 variants pass" in result.output
+
+
+def test_generate_refuses_a_paper_that_fails_fairness(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    result = runner.invoke(app, ["generate", str(_unfair_paper(tmp_path)), "--centres", "5",
+                                 "--out", str(out)], env={"TRACE_KEK": KEY})
+    assert result.exit_code != 0
+    assert "q3.dims" in result.output and "'20', '72'" in result.output
+    assert "steps" in result.output and "--skip-fairness" in result.output
+    assert not out.exists() or not any(out.iterdir())  # nothing written
+
+
+def test_generate_fails_closed_when_the_checker_cannot_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from examfp import cli
+
+    def missing(_cache: Path) -> object:
+        raise FileNotFoundError("NLI model files missing")
+
+    monkeypatch.setattr(cli, "build_fairness_checker", missing)
+    out = tmp_path / "out"
+    result = runner.invoke(app, ["generate", SAMPLE, "--centres", "5", "--out", str(out)],
+                           env={"TRACE_KEK": KEY})
+    assert result.exit_code != 0
+    assert "NLI model files missing" in result.output and "--skip-fairness" in result.output
+    assert not out.exists() or not any(out.iterdir())
+
+
+def test_skip_fairness_names_every_skipped_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from examfp import cli
+
+    def never(_cache: Path) -> object:
+        raise AssertionError("the checker ran despite --skip-fairness")
+
+    monkeypatch.setattr(cli, "build_fairness_checker", never)
+    out = tmp_path / "out"
+    result = runner.invoke(app, ["generate", str(_unfair_paper(tmp_path)), "--centres", "5",
+                                 "--out", str(out), "--skip-fairness"], env={"TRACE_KEK": KEY})
+    assert result.exit_code == 0, result.output
+    warning = result.output[result.output.index("fairness checks skipped"):]
+    for name in ("answer", "digits", "trivial", "steps", "separation", "ask", "numbers", "nli",
+                 "instruction", "units", "readability", "options"):
+        assert name in warning, name
+    assert "NOT machine-checked" in warning
+    assert (out / "codebook.json.enc").exists()

@@ -113,3 +113,32 @@ def test_a_candidate_pin_writes_its_own_csv(tmp_path: Path) -> None:
     other = NliPin("other", "org/other-nli", "0" * 40, ("config.json",))
     assert nli_reliability.csv_path(NLI_PIN).name == "nli_reliability.csv"
     assert nli_reliability.csv_path(other).name == "nli_reliability-other.csv"
+
+
+@pytest.mark.parametrize(
+    ("reference", "candidate", "expected"),
+    [
+        ("Identify the chemical symbol for sodium.", "Write down the chemical symbol for sodium.",
+         True),  # E09: only the command differs
+        ("Explain why ice floats on water.", "Give a reason why ice floats on water.", False),
+        ("Find the mean of 4, 8, 10 and 14.", "Calculate the average of 4, 8, 10 and 14.",
+         False),  # mean -> average changes the quantity named, not just the command
+        ("Subtract 17 from 52.", "Subtract 52 from 17.", False),
+        ("List the factors of 18.", "List the factors of 18.", False),  # nothing differs
+        ("A tank holds 45 litres. Find the volume.", "A tank holds 45 litres. Work out the volume.",
+         True),
+    ],
+)
+def test_instruction_only_pairs(reference: str, candidate: str, expected: bool) -> None:
+    from eval.nli_reliability import instruction_only
+
+    assert instruction_only(reference, candidate) is expected
+
+
+def test_the_held_out_split_is_one_instruction_pair() -> None:
+    from eval.nli_reliability import instruction_only
+
+    pairs = _pairs()
+    found = [p["id"] for p in pairs
+             if instruction_only(str(p["reference"]), str(p["candidate"]))]
+    assert found == ["E09"]

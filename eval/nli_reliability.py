@@ -7,11 +7,15 @@ entailment in both directions at the configured threshold:
    half equivalent, half not (changed quantity, changed units, added or removed
    constraint, reversed relationship). Accuracy with a 95% Clopper-Pearson
    interval, overall and by kind.
+   It is reported again on **open question prose alone**: without the pairs
+   whose only difference is instruction phrasing (:func:`instruction_only`),
+   which the checker now judges with the instruction table.
 2. The fixture's wording subset (``tests/fixtures/variants.json``): agreement of
    the model's decision with the hand labels, on the entries the checker sends
-   to the model (wording slots with identical numbers; U11 is decided by the
-   numbers rule). Unit forms are judged by the unit table, not the model (owner
-   decision, 2026-10-17); the model's view of them is printed for reference.
+   to the model (wording slots in the stem, with identical numbers; U11 is
+   decided by the numbers rule). Instruction and unit-form entries are judged by
+   their tables, not the model (owner decisions, 2026-10-17); the model's view
+   of them is printed for reference.
 
 Needs the ``fairness`` extra and the pinned model (``.\\tasks.ps1 fetch-models``).
 ``python -m eval.nli_reliability`` prints both tables for the checker's model and
@@ -27,15 +31,16 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 from collections import defaultdict
 from dataclasses import astuple, dataclass, fields
 from pathlib import Path
 
 from examfp.decode.calibrate import misread_upper_bound
-from examfp.fairness.check import candidate_text, numbers, reference_text
+from examfp.fairness.check import Channel, candidate_text, numbers, reference_text, slot_channel
 from examfp.fairness.nli import DEFAULT_THRESHOLD, CrossEncoderNli, NliBackend, nli_model_dir
 from examfp.fairness.pins import NLI_PIN, NLI_PINS, NliPin, nli_pin
-from examfp.models import Paper, UnitFormSlot
+from examfp.models import Paper
 
 _ROOT = Path(__file__).resolve().parents[1]
 _PAIRS = Path(__file__).resolve().parent / "nli_reliability.json"
@@ -88,6 +93,43 @@ def score_reliability_set(backend: NliBackend, threshold: float = DEFAULT_THRESH
     return scored
 
 
+# Words that start the object of a command: the command is everything before them.
+_OBJECT_STARTERS = frozenset({
+    "the", "a", "an", "its", "his", "her", "their", "this", "these", "that", "those",
+    "which", "why", "how", "what", "whether", "all", "each", "every", "one", "any", "some",
+})
+_SENTENCE = re.compile(r"(?<=[.?!])\s+|\n")
+
+
+def _command_split(sentence: str) -> tuple[str, str]:
+    words = sentence.lower().split()
+    for i, word in enumerate(words):
+        if word.strip(".,;:!?") in _OBJECT_STARTERS or any(c.isdigit() for c in word):
+            return " ".join(words[:i]), " ".join(words[i:])
+    return " ".join(words), ""
+
+
+def instruction_only(reference: str, candidate: str) -> bool:
+    """Do the texts differ only in the command that opens a sentence?
+
+    The rule, fixed before the split was scored: same number of sentences; in
+    every sentence, the words from the first object word (an article, a pronoun,
+    a wh-word, a quantifier, or a token with a digit) onwards are identical; and
+    at least one command differs.
+    """
+    ref = [x for x in _SENTENCE.split(reference.strip()) if x.strip()]
+    cand = [x for x in _SENTENCE.split(candidate.strip()) if x.strip()]
+    if len(ref) != len(cand):
+        return False
+    differs = False
+    for a, b in zip(ref, cand, strict=True):
+        (cmd_a, rest_a), (cmd_b, rest_b) = _command_split(a), _command_split(b)
+        if rest_a != rest_b:
+            return False
+        differs |= cmd_a != cmd_b
+    return differs
+
+
 def score_fixture_wording(backend: NliBackend, threshold: float = DEFAULT_THRESHOLD
                           ) -> list[Scored]:
     """Score the fixture's wording entries that the checker would send to the model."""
@@ -99,7 +141,8 @@ def score_fixture_wording(backend: NliBackend, threshold: float = DEFAULT_THRESH
             continue
         question = next(q for q in paper.questions if q.id == entry["question"])
         slot = next(s for s in question.slots if s.name == entry["slot"])
-        set_name = "fixture-units" if isinstance(slot, UnitFormSlot) else "fixture"
+        set_name = {Channel.UNIT_FORM: "fixture-units",
+                    Channel.INSTRUCTION: "fixture-instructions"}.get(slot_channel(slot), "fixture")
         reference = reference_text(question)
         candidate = candidate_text(question, entry["slot"], entry["values"])
         if numbers(reference) != numbers(candidate):
@@ -197,17 +240,27 @@ def main() -> None:
         print(f"\nmodel {backend.version}, threshold {DEFAULT_THRESHOLD} both ways")
         print("=== held-out wording set (eval/nli_reliability.json) ===")
         print("\n".join(summarise(held_out)))
+        pairs = {p["id"]: p for p in json.loads(_PAIRS.read_text(encoding="utf-8"))["pairs"]}
+        instruction = [r for r in held_out
+                       if instruction_only(pairs[r.id]["reference"], pairs[r.id]["candidate"])]
+        prose = [r for r in held_out if r not in instruction]
+        print(f"\n=== held-out, open question prose alone ({len(prose)} pairs; instruction-only "
+              f"pairs excluded: {', '.join(r.id for r in instruction) or 'none'}) ===")
+        print("\n".join(summarise(prose)))
         results.append((backend.version, reliability(held_out)))
         fixture: list[Scored] = []
         if not args.held_out_only:
             fixture = score_fixture_wording(backend)
-            sent = [r for r in fixture if r.set == "fixture"]
-            units = [r for r in fixture if r.set == "fixture-units"]
-            print("\n=== fixture wording entries the checker sends to the model: agreement ===")
-            print("\n".join(summarise(sent)))
-            print("\n=== fixture unit forms (judged by the unit table; model shown for "
-                  "reference) ===")
-            print("\n".join(summarise(units)))
+            sections = (
+                ("fixture", "fixture wording entries the checker sends to the model: agreement"),
+                ("fixture-instructions", "fixture instruction entries (judged by the "
+                 "instruction table; model shown for reference)"),
+                ("fixture-units", "fixture unit forms (judged by the unit table; model shown "
+                 "for reference)"),
+            )
+            for set_name, title in sections:
+                print(f"\n=== {title} ===")
+                print("\n".join(summarise([r for r in fixture if r.set == set_name])))
         out = csv_path(pin)
         write_csv(held_out + fixture, out)
         print(f"wrote {out}")

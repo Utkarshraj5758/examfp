@@ -390,12 +390,16 @@ q7 6.81, q8 8.89.
   Predicted gain at 18.59 bits: single-source 3-question leaks 80–81% → 90–92%;
   2-question leaks stay at 0% (bound above). `MIN_READ_SLOTS` stays 11. M11 must
   stabilise the threshold with far more trials before any adoption.
-- **Pair accuracy above 24 slots — hypothesis for M11, single seed.** In the
-  floor sweep (seed 1, crops 1–8), `--hypotheses` pairs that included an
-  outsider appeared only at 11–23 slots read: 75 among 2,315 multi-source results
-  at ≥ 11 reads. None appeared at 24 or more. That suggests the pair hypothesis
-  may be reliable on larger leaks, but it is **one seed** and is not used
-  anywhere. M11's sweep must validate it before anyone relies on it.
+- **Pair accuracy above 24 slots — retracted (2026-10-17).** On the pre-M6
+  paper, seed 1's floor sweep showed `--hypotheses` pairs that included an
+  outsider only at 11–23 slots read (75 among 2,315 multi-source results at ≥ 11
+  reads). This note read that as a hint the pair might be reliable on larger
+  leaks. **The same sweep on the M6 paper contradicts it:** seed 1 (4,000 leaks,
+  crops 1–8, gate with no floor) has outsider pairs at **24 and at 25 reads**,
+  one each. That is 2 among the 921 multi-source results at ≥ 24 reads, and 73
+  among 2,310 at ≥ 11 (`eval/out/results_floor.csv`). There is no read count
+  above which the pair can be trusted. It stays an opt-in hypothesis printed with
+  its measured error.
 - **Rename `MULTI_SOURCE_SUSPECTED` in M7 (proposal).** The outcome means "no
   single centre in this codebook explains the observed slots", and it has three
   causes. The name asserts only the first. M7's OCR recalibration will make cause

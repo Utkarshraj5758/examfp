@@ -381,11 +381,11 @@ across noise regimes** (clean, retype, OCR noise, each paraphrase strength):
 for each reader's measured misread rate, the tolerance it implies, the floor
 that keeps innocent identifications at zero, and what that floor costs
 single-source identification. Include the bits-based floor (NOTES.md, M5.5)
-with enough trials to stabilise its threshold. **Hypothesis to validate
-(single seed, M5.5):** the `--hypotheses` pair never included an outsider at
-24 or more slots read. All 75 outsider pairs in the seed-1 floor sweep came
-from leaks with 11–23 reads. Sweep pair accuracy against slots read across
-many seeds before anyone relies on it.
+with enough trials to stabilise its threshold. Sweep `--hypotheses` pair
+accuracy against slots read across many seeds. *(The M5.5 hypothesis that pairs
+never include an outsider at 24 or more reads is retracted. On the M6 paper,
+seed 1 has outsider pairs at 24 and 25 reads: 2 among 921 multi-source results
+at ≥ 24 reads, NOTES.md M5.5.)*
 
 **Acceptance:** `.\tasks.ps1 bench` writes `eval/out/results.csv` plus figures;
 false-identification rate reported for every cell and is zero or has a stated

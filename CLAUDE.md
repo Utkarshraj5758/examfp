@@ -70,7 +70,8 @@ examfp/                 core library — pure, no I/O except render/ocr
   models.py             Paper, Question, Slot, Variant, Answer      [FROZEN]
   render.py             Typst -> PDF, layout invariance             [FROZEN]
   fairness/             difficulty bands + step rule, SymPy answers, NLI
-                        equivalence, unit table, readability
+                        equivalence, unit and instruction tables, the ask
+                        rule, variant separation, readability
   codebook/             rs.py, tardos.py, assign.py, crypto.py
   decode/               ocr.py, align.py, read.py, score.py, neural.py
   attacks.py            crop, retype, typos, paraphrase, collude

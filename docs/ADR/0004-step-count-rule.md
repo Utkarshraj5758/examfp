@@ -1,10 +1,18 @@
-# ADR 0004 — Step count: equal steps in the canonical written method
+# ADR 0004 — Fairness rules: equal steps, variant separation, and the ask
 
 - **Status:** Accepted
-- **Date:** 2026-10-17 (M6)
-- **Decided by:** the owner, in the planning session (PLAN.md M6, decision 2) and at
-  the M6 kickoff. This ADR records the rule; it does not adapt it.
-- **Implemented in:** `examfp/fairness/bands.py` (`step_count`, `check_steps`)
+- **Date:** 2026-10-17 (M6). Parts 2–4 added the same day, to close M6.
+- **Decided by:** the owner, in the planning session (PLAN.md M6, decision 2), at
+  the M6 kickoff, and in the closing session. This ADR records the rules; it does
+  not adapt them.
+- **Implemented in:** `examfp/fairness/bands.py` (part 1, `step_count`,
+  `check_steps`), `separation.py` (part 2), `ask.py` (part 3),
+  `instructions.py` (part 4)
+
+*Part 1 is the step count. Part 2 is variant separation; part 3, the ask as a
+radical; part 4, instruction phrasing. All are structural: none uses a model.*
+
+# Part 1 — Step count
 
 ## Context
 
@@ -123,3 +131,164 @@ carries inside the division and multiplication it implies.
   zero undercounts.
 - **Multiplier = the operand with fewer digits, or both orders must match.**
   Rejected in favour of fill order, which the author controls.
+
+---
+
+# Part 2 — Variant separation
+
+## Context
+
+A fingerprint symbol is only as good as the reader's ability to recover it. The
+fuzzy reader (`examfp/decode/read.py`) lowercases the leak, takes the longest
+variant found verbatim, and otherwise the variant with the strictly best fuzzy
+partial match (at least 80). In M6 the sample paper's first replacement closing,
+"Show your work.", sat beside "Show your working.". A typo in the longer text
+let the shorter one win: 6 misreads in 104,048 reads, and under ADR 0003 that
+would have raised the gate tolerance to 1 and the read floor to 16. Choosing a
+different variant fixed it, but only case by case. The rule has to be
+structural.
+
+## Measurement (`eval/separation.py`, 2026-10-17, seed 0)
+
+Every one of the sample paper's 23 text-read slots (wording, instruction, unit
+form) was paired with synthetic competitors, and each pair was read 1,000 times
+under the benchmark's attack (render, retype, 3% adjacent-letter typos,
+`read_leak` against the whole paper), alternating which variant was shown. That
+makes 1.7 million reads in all. The paper's own pairs were read 4,000 times
+each.
+
+| family | what the competitor is | misreads per read |
+|---|---|---|
+| edit, d = 1 / 2 / 3 / 4 / 5 / 6 | random letter edits at exact Levenshtein distance d, no prefix or containment | 0.57% / 0.18% / 0.07% / 0.02% / 0.03% / 0.004% |
+| edit, d = 7 / 8 / 9 / 10 / 11 / 12 | (69,000 reads each) | 0 / 0 / 1 misread / 14 misreads / 0 / 0 |
+| prefix, k = 1 … 8 | truncated or extended by k letters before the final punctuation | 0.34% rising to 4.85% |
+| containment, k = 1 … 8 | k leading letters dropped or prepended (suffix, infix) | 0.54% rising to 9.0% |
+| the paper's 29 pairs | as written | 0, except q4 "Show your working." / "Include your working." (d = 7): 1 in 4,000 |
+| the M6 pair | "Show your working." / "Show your work." (d = 3) | 2 in 4,000 |
+
+**The rule for the minimum, fixed before the sweep ran:** the smallest distance
+`d` such that the edit family shows no misread at `d` or above, and the reads
+pooled from `d` upwards bound the misread rate at or below the calibrated
+`MISREAD_RATE` (2.88e-5, ADR 0003) at 95%. **It gives 11**: 0 misreads in
+138,000 reads at d ≥ 11, upper bound 2.17e-5.
+
+**Why so far out.** The misreads at d = 9 and 10 are not near-duplicates. They
+are short references nearly embedded in long competitors: "cm²" inside
+"xklbccwm²xfjc", where one adjacent-letter typo makes "cm²" appear verbatim.
+Edit distance counts the padding, but the reader only aligns the best
+substring, so the two measures disagree. Containment of any kind is the
+dominant hazard: prefix pairs, and suffix or infix pairs even more so, misread
+at rates two orders of magnitude above the calibrated rate.
+
+## Decision (owner, 2026-10-17)
+
+1. **No containment.** No variant of a text-read slot may contain another
+   (normalised: lowercase, collapsed whitespace, trailing punctuation dropped):
+   no prefix, suffix or infix. This extends the requested prefix rule, because
+   the containment family misread even more than the prefix family. It catches
+   the M6 pair.
+2. **The edit-distance minimum is recorded, not adopted.**
+   `MEASURED_MIN_EDIT_DISTANCE = 11` is kept beside the deployed
+   `MIN_EDIT_DISTANCE = 1`, which turns the distance rule off. At 11, 17 of the paper's 29 text-variant pairs
+   would fail: every lead pair (d = 7–8), every working closing (d = 7) and four
+   short unit pairs (d = 1–5). Fixture false rejections would rise from 9 to
+   16. The bench reads those 17 pairs with no misreads (except the one q4
+   misread above), so the cost would buy little.
+
+## Consequences
+
+- The M6 near-prefix case, and any containment, is now rejected structurally
+  (`separation` check on every text-read slot). U11 also fails it: it contains
+  its reference "On the way to Nashik,".
+- **The distance rule is open.** Edit distance is the wrong measure for this
+  reader. A measure that sees near-embedding, such as the reader's own partial
+  ratio after a simulated typo, needs a new design fixed before a fresh sweep.
+  The current pair at d = 7 that misread once in 4,000 shows that the residual
+  risk is not zero.
+- Two further mechanisms were seen and are not covered: a typo elsewhere in the
+  question can create a short variant verbatim ("₹" vs "cs": "cost" became
+  "csot"), and a variant may occur verbatim in the question's other text.
+
+---
+
+# Part 3 — The ask is a radical
+
+## Context
+
+Item-generation theory separates a question's **radicals**, the elements that
+decide what is measured and how hard it is, from its **incidentals**, surface
+features that can vary without changing either. A fingerprint may vary
+incidentals only.
+
+The quantity asked is the first radical: "its circumference" and "its area"
+over the same circle are different questions. The units, precision and format
+the answer must take are radicals too, and so are the options of a
+multiple-choice question. Until now only NLI guarded a wording slot against a
+changed ask. The held-out set showed that is not enough: the model passed
+circumference → area (0.834 / 0.625) and factors → multiples (0.991 / 0.989).
+**NLI must never be the only guard against a changed ask.**
+
+## Decision
+
+- The **ask region** runs from the start of the first template sentence that
+  opens the ask to the end of the question. A sentence opens the ask when it
+  holds a command: a slot whose reference is a command phrasing in the
+  instruction table (part 4), the same phrasing written literally (whole words,
+  case-insensitive), or a sentence ending in "?". Sentences split on `.`, `?` or
+  `!` before whitespace or the end, and on line breaks, in the template itself.
+- An **NLI-judged wording slot** must lie wholly before the ask region, in the
+  stem that sets out the situation. Otherwise the `ask` check fails, and the
+  model is not consulted.
+- Instruction slots, unit forms, numeric groups and option orders may sit in the
+  ask region, because their tables and rules keep the ask identical.
+- **No locatable ask fails closed** for every wording slot of the question. An
+  earlier false anchor (a context sentence that happens to contain "state") only
+  widens the region, so it errs strict.
+
+The region is deliberately wider than "the clause that names the target
+quantity". Whatever follows the command constrains the answer and is part of
+the ask.
+
+## Consequences
+
+- Held-out N06 and N08, rebuilt as slots, are rejected by `ask` before any model
+  call (`tests/fairness/test_check.py`, `tests/fairness/test_ask.py`).
+- The sample paper is unaffected: its only NLI-judged slots are the three intros,
+  all in the stem. No fixture entry changed verdict.
+- **Limit:** the stem holds radicals too, the data and the relationships ("Asha
+  is 4 years older than Ravi"). A wording slot that reverses a relationship in
+  the stem is still guarded only by NLI and the numbers rule. On the held-out set
+  the pinned model caught 7 of 7 reversed relationships; base, the candidate,
+  passed one (N29).
+
+---
+
+# Part 4 — Instruction phrasing (owner decision, 2026-10-17)
+
+**Category.** *Instruction phrasing* is the command that says what to do with
+the question ("Calculate", "State"), and instructions about the working ("Show
+your working."). *Option-choice phrasing* says how to answer a multiple-choice
+question ("Choose one option only."). Both qualify only if they neither name nor
+constrain the quantity asked: "Give your answer in square metres." is part of
+the ask, not boilerplate.
+
+**Rule.** A slot whose reference phrasing is in the instruction table is judged
+by the table, like unit forms: the candidate must be listed in the same class.
+An unlisted phrasing fails closed. NLI is never consulted.
+
+**The table is the paper's complete instruction vocabulary**, every variant of
+every instruction slot in the sample paper, grouped by what it asks for:
+compute ("Calculate", "Work out"), recall ("State", "Identify"), show working
+("Show your working.", "Include your working."), choose one option ("Choose one
+option only.", "Select only one option."). It was not built from the fixture,
+and a test pins it to the paper's vocabulary.
+
+**Consequence.** Every fair instruction phrasing the paper does not use is now
+rejected. That covers the five command synonyms (F01 "Find", F03 "Determine",
+F04 "Find", F07 "Name", F09 "Write down"), which NLI used to pass, and the four
+closings (F11, F12, F13, F14). Fixture false rejections go from 3 to 9. The
+model's quality is unchanged: on open question prose alone (the held-out set
+less its one instruction-only pair, E09), it scores 55/59 = 93.2% (CI
+83.5–98.1%) against 55/60 = 91.7%. These are the same 55 correct answers; the
+pair removed was one of its errors. The table added coverage, not model
+quality.

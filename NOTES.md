@@ -612,17 +612,101 @@ check, and fixture agreement is 17/20. **Base was not run on the fixture.** The
 protocol runs it only with the chosen model, and its fixture result would invite
 choosing on the fixture.
 
+### Closing M6: three structural rules (2026-10-17)
+
+The owner asked for three changes, tests first: variant separation, a structural
+guard on the quantity asked, and instruction phrasing moved to a curated table.
+Then: mark M6 done if the acceptance passes, otherwise stop and report without
+tuning anything. **It does not pass: 9 false rejections against a budget of 2.**
+Details and basis are in [ADR 0004](docs/ADR/0004-step-count-rule.md),
+parts 2–4.
+
+**1. Variant separation** (`separation.py`, the `separation` check on every
+text-read slot). Sweep `eval/separation.py`: 1.7 million reads (seed 0). The 23
+text-read slots were paired with synthetic competitors at exact edit distances
+1–12, plus prefix and containment shapes, and read under the bench's attack.
+
+- Edit family misread rate by distance: 0.57%, 0.18%, 0.07%, 0.02%, 0.03%,
+  0.004% for d = 1–6; 0 at d = 7–8; 1 and 14 misreads (of 69,000 reads each) at
+  d = 9 and 10; 0 at d = 11–12.
+- Prefix pairs misread at 0.34–4.85%, containment pairs at 0.54–9.0%.
+- The rule fixed before the run gives **11**: 0 in 138,000 reads at d ≥ 11, 95%
+  bound 2.17e-5 ≤ `MISREAD_RATE`.
+- The tail at d = 9–10 is a short variant nearly embedded in a long one ("cm²"
+  in "xklbccwm²xfjc"; one typo makes it verbatim), which edit distance does not
+  measure.
+- **Owner decision:** extend the structural rule from *prefix* to *any
+  containment* (adopted). Record 11 but **do not adopt** it (deployed minimum 1,
+  the distance rule off): at 11, 17 of the paper's 29 text-variant pairs fail
+  (all leads at d = 7–8, all working closings at d = 7, four short unit pairs),
+  and fixture false rejections would go from 9 to 16.
+- The paper's own pairs read clean except q4 "Show your working." / "Include
+  your working." (d = 7, no containment): **1 misread in 4,000**. The M6 pair
+  "Show your work." misread 2 in 4,000.
+
+**2. The ask is a radical** (`ask.py`, the `ask` check on NLI-judged wording).
+The ask region runs from the first sentence that opens the ask (a table command,
+a literal command, or "?") to the end of the question. A wording slot must sit
+before it, in the stem, or the model is not consulted; with no locatable ask,
+the check fails closed. Held-out N06 and N08 rebuilt as slots are rejected
+before NLI. The sample's only NLI-judged slots, its three intros, sit in the
+stem. **Limit:** relationships and data in the stem ("Asha is 4 years older
+than Ravi") are radicals the rule does not cover; NLI and the numbers rule
+still guard them.
+
+**3. Instruction phrasing** (`instructions.py`, the `instruction` channel).
+The category is the command, working instructions and option-choice phrasing
+that neither name nor constrain the quantity asked. The table is exactly the
+sample paper's instruction vocabulary, four classes and eight phrasings, and a
+test pins it to the paper: nothing came from the fixture. An unlisted phrasing
+fails closed, so NLI is never consulted for instruction slots.
+
+- **Held-out set on open question prose alone** (E09, the one instruction-only
+  pair, removed by a rule fixed in code before scoring): **55/59 = 93.2% (95% CI
+  83.5–98.1%)** against 55/60 = 91.7%. The same 55 correct; the pair removed
+  was one of the model's errors. **This is not an improvement in model quality:
+  the table added coverage, not model quality.** False acceptances stay 2/30
+  (N06, N08); part 2's ask rule, not the model, now keeps those out of a slot.
+
+**Acceptance** (`.\tasks.ps1 fairness`, nli-deberta-v3-small@fa28048, threshold
+0.5, CPU, 2026-10-17):
+
+| criterion | result |
+|---|---|
+| false acceptances, 11 unfair | **0**; each caught by its labelled rule (U10 and U11 also fail `separation`) |
+| false rejections, 29 fair | **9**: F01, F03, F04, F07, F09 (command synonyms the paper does not use), F11, F12, F13, F14 (closings it does not use), all by the instruction table; was 3 |
+| lazy load, < 300 ms per pair | pass |
+| sample paper passes every check | pass |
+| fixture entries decided without the model | 37 of 40; only the three stem intros (F16–F18) reach NLI, which accepts all three |
+
+Every rejection is now a fail-closed table miss, not a model error. The budget
+can be met only by listing more phrasings, an owner decision about coverage.
+Adding the rejected fixture phrasings themselves would be tuning on the
+fixture. **M6 stays `[~]`.** No fixture label was touched, and no `approved`
+flag changed (the paper did not change).
+
+*Correction to the closing session's question:* I first reported that 22 of the
+paper's 29 pairs fall below 11; the count is 17, now pinned by
+`tests/eval/test_separation_sweep.py`.
+
 ### Open items
 
-- **M6 acceptance is open:** 3 false rejections against a budget of 2. The way
-  forward is a stronger model (the reliability numbers above are M9's
-  baseline) or an owner-level change to how instruction-type slots are judged.
-  The obvious next size up, nli-deberta-v3-base, lost on held-out data (above);
-  its one-way rejections suggest model size alone will not fix this.
-- **NLI false acceptances** on held-out data (2/30, both "changed quantity").
-- **Unit table** contents need owner review before any addition.
+- **M6 acceptance is open:** 9 false rejections against a budget of 2, all
+  fail-closed misses of the instruction table. Closing needs an owner decision
+  on the table's coverage, from a source other than the fixture (for example a
+  published command-word glossary), or on the budget itself.
+- **Separation by distance is open:** edit distance does not see near-embedding.
+  A measure that does, such as the reader's partial ratio after a simulated
+  typo, needs a design fixed before a fresh sweep. Typo-created variants
+  elsewhere in the question ("₹" vs "cs") are a further mechanism, not covered.
+- **The unit table's provenance:** it lists "km per hour" (F20), a fixture form
+  the paper does not use, so it was not built from the paper alone as the
+  instruction table is. Owner decision whether to drop it (F20 would become a
+  false rejection).
+- **Stem radicals** (data, relationships) are guarded only by NLI and the
+  numbers rule.
+- **NLI false acceptances** on held-out data (2/30, both "changed quantity"),
+  now kept out of slots by the ask rule.
 - **Readability tolerances** (words and syllables within 20%, rare words within
   1, Zipf < 3.0) were set before scoring and have not been calibrated; no
   fixture entry exercises readability as the deciding rule.
-- **Near-substring variants** confuse the fuzzy reader. Enforce the authoring
-  rule in M7's reader work or as a checker rule (owner decision).

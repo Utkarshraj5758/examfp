@@ -237,10 +237,21 @@ channel (`units.py`).
   set (2 false acceptances, 4 false rejections) against small's 55/60. Under the
   rule fixed before scoring, small stays. The one fixture run, with small, is
   unchanged: 3 false rejections.
+- *Three structural rules, closing attempt (2026-10-17; ADR 0004 parts 2–4):*
+  - Variant separation: no variant contains another. The measured edit-distance
+    minimum, 11, is recorded and not adopted, on the owner's decision.
+  - The ask is a radical: no NLI-judged wording slot may sit in the ask.
+  - Instruction phrasing is judged by a table built from the paper's vocabulary.
+  - **Result: not met. 9 false rejections** (F01, F03, F04, F07, F09, F11–F14:
+    fair phrasings the paper does not use, failing closed at the table), 0 false
+    acceptances. NLI on open question prose alone: 55/59, unchanged in
+    substance. The table added coverage, not model quality. Stopped and
+    reported without tuning, as instructed.
 
 Numbers, findings and open items are in NOTES.md, M6. **To close M6:** meet
-the false-rejection budget without tuning on the fixture, for example with a
-stronger pinned model chosen on held-out data (the M9 baseline above).
+the false-rejection budget without tuning on the fixture. Every remaining
+rejection is a table miss, so this is an owner decision on the instruction
+table's coverage (from a source other than the fixture) or on the budget.
 
 ---
 

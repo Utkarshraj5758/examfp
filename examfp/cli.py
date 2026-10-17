@@ -5,8 +5,8 @@
 symbol vector) plus the codebook. By default the codebook is only ever written
 as an AES-GCM envelope (``codebook.json.enc``, key from ``TRACE_KEK``), and
 ``trace``/``demo`` decrypt it in memory; ``--plaintext`` opts out, with a
-warning naming the file. ``demo`` and the dashboard still write a plaintext demo
-codebook unless given ``--encrypt``. Side effects live here; the
+warning naming the file. ``demo`` and the dashboard follow the same rule for
+their demo codebook in ``out/``. Side effects live here; the
 library modules stay pure. The dashboard lives in ``api/`` (``python -m
 api.dashboard``) so this package depends on no repo tooling.
 """
@@ -67,14 +67,27 @@ def _fail(message: str) -> typer.Exit:
     return typer.Exit(code=2)
 
 
-def vault_from_env(encrypt: bool) -> Vault | None:
-    """Return the env-var vault when encrypting; exit cleanly if its key is unusable."""
-    if not encrypt:
+def codebook_vault(plaintext: bool) -> Vault | None:
+    """The vault codebooks are sealed with; ``None`` only under ``--plaintext``.
+
+    Guarantees: sealing is the default for ``generate``, ``demo`` and the
+    dashboard; a missing or unusable ``TRACE_KEK`` exits (code 2), naming
+    ``--plaintext``, before anything is written.
+    """
+    if plaintext:
         return None
     try:
         return EnvVault.from_environ(os.environ)
     except VaultError as exc:
-        raise _fail(str(exc)) from None
+        raise _fail(f"{exc}. Codebooks are sealed by default: set TRACE_KEK, or pass "
+                    "--plaintext to write an unencrypted codebook.") from None
+
+
+def warn_plaintext(path: Path, written: bool = True) -> None:
+    """Warn that a plaintext codebook is on disk, naming the file."""
+    action = "wrote" if written else "reused"
+    typer.echo(f"warning: {action} a PLAINTEXT codebook at {path}. It is a secret "
+               "(CLAUDE.md rule 5); delete it, or omit --plaintext.", err=True)
 
 
 def write_codebook(book: Codebook, directory: Path, vault: Vault | None) -> Path:
@@ -132,6 +145,16 @@ def ensure_codebook(paper: Paper, directory: Path, vault: Vault | None) -> Codeb
     return expected
 
 
+def ensure_demo_codebook(paper: Paper, directory: Path, vault: Vault | None) -> Codebook:
+    """:func:`ensure_codebook`, warning when the codebook it writes or reuses is plaintext."""
+    path = directory / CODEBOOK_PLAIN
+    existed = path.exists()
+    book = ensure_codebook(paper, directory, vault)
+    if vault is None:
+        warn_plaintext(path, written=not existed)
+    return book
+
+
 def render_text(paper: Paper, symbols: Mapping[tuple[str, str], int]) -> str:
     """Render ``paper`` as plain text for one centre's symbol vector."""
     lines = [paper.title, "=" * len(paper.title), ""]
@@ -173,7 +196,7 @@ def generate(
     Unless ``--skip-fairness``, every variant must pass the fairness checker
     first: one failing variant, or a checker that cannot run, writes nothing.
     """
-    vault = None if plaintext else _sealing_vault()  # fail before writing anything
+    vault = codebook_vault(plaintext)  # fail before writing anything
     paper = Paper.model_validate_json(paper_path.read_text(encoding="utf-8"))
     if skip_fairness:
         _warn_fairness_skipped(paper)
@@ -184,8 +207,7 @@ def generate(
     path = write_codebook(codebook, out, vault)
     typer.echo(f"wrote {len(codebook)} centre files + {path.name} to {out}")
     if vault is None:
-        typer.echo(f"warning: wrote a PLAINTEXT codebook to {path}. It is a secret "
-                   "(CLAUDE.md rule 5); delete it once sealed, or omit --plaintext.", err=True)
+        warn_plaintext(path)
     elif (out / CODEBOOK_PLAIN).exists():
         typer.echo(f"warning: an earlier plaintext {CODEBOOK_PLAIN} is still in {out}",
                    err=True)
@@ -238,15 +260,6 @@ def _warn_fairness_skipped(paper: Paper) -> None:
         if planned[channel]:
             typer.echo(f"  {channel.value}: {', '.join(CHECKS[channel])} "
                        f"({planned[channel]} variants)", err=True)
-
-
-def _sealing_vault() -> Vault:
-    """The vault ``generate`` seals with by default; exits, naming the opt-out, if unusable."""
-    try:
-        return EnvVault.from_environ(os.environ)
-    except VaultError as exc:
-        raise _fail(f"{exc}. Codebooks are sealed by default: set TRACE_KEK, or pass "
-                    "--plaintext to write an unencrypted codebook.") from None
 
 
 @app.command()
@@ -408,15 +421,21 @@ def demo(
         "data/papers/sample.json"
     ),
     seed: Annotated[int, typer.Option(help="RNG seed (centre + attack).")] = 0,
-    encrypt: Annotated[
-        bool, typer.Option("--encrypt/--no-encrypt", help="Seal the codebook (key: TRACE_KEK).")
+    plaintext: Annotated[
+        bool,
+        typer.Option("--plaintext", help="Opt out of encryption: write codebook.json in clear "
+                     "(a secret on disk; prints a warning naming the file)."),
     ] = False,
 ) -> None:
-    """Tell the whole story: generate, leak, trace, and report."""
+    """Tell the whole story: generate, leak, trace, and report.
+
+    Guarantees: the demo codebook in ``out/`` is sealed unless ``--plaintext``,
+    which warns, naming the file and whether it was written or reused.
+    """
     start = time.perf_counter()
-    vault = vault_from_env(encrypt)
+    vault = codebook_vault(plaintext)
     paper = Paper.model_validate_json(paper_path.read_text(encoding="utf-8"))
-    book = ensure_codebook(paper, Path("out"), vault)
+    book = ensure_demo_codebook(paper, Path("out"), vault)
 
     rng = random.Random(seed)
     centre = rng.choice(list(book.keys()))

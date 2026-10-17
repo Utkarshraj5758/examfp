@@ -147,7 +147,9 @@ late leaks perform alike — see the M5 section below.
   `out/codebook.json` unencrypted, violating security rule 5. `.gitignore`
   keeps it out of git, but the real fix is envelope encryption (M12).
   *M5: partly resolved — `--encrypt` writes only an AES-GCM envelope. Plaintext
-  is still the default so the demo runs with zero setup.*
+  is still the default so the demo runs with zero setup.* *2026-10-17: sealing
+  is now the default for `generate`, `demo` and the dashboard; `--plaintext`
+  opts out with a warning (M5 open items below).*
 - **Layout drift.** `api/dashboard.py` and `eval/` predate the CLAUDE.md layout
   (`service/`, `web/`). `examfp/cli.py`'s `dashboard` command imports
   `api.dashboard`, so the core library reaches into repo tooling — against
@@ -269,8 +271,11 @@ confirming the baseline was preserved verbatim. Raw data: `eval/out/results.csv`
   codebook-equivalent papers; that directory was sent to the Recycle Bin).
   `generate` now seals by default, refuses to run without `TRACE_KEK`, and
   `--plaintext` opts out with a warning naming the file. `demo` and
-  `python -m api.dashboard` still write a plaintext demo codebook to `out/`
-  unless given `--encrypt`.
+  `python -m api.dashboard` now follow the same rule for their demo codebook in
+  `out/` (`--encrypt` is gone; their `--plaintext` warns, naming the file and
+  whether it was written or reused). *Still open:* every entry point writes the
+  rendered papers (`out/centre_*.txt`) in clear, and each is
+  codebook-equivalent (open item above).
 
 ---
 

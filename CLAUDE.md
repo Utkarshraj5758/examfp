@@ -134,8 +134,8 @@ instruction, never as a side effect of another milestone.
 
 - Envelope encryption: per-exam AES-GCM data key, wrapped by a KEK from the
   vault interface. The database stores ciphertext plus wrapped key only.
-  Built for codebooks at rest (`codebook/crypto.py`; `generate` seals by
-  default). The database is planned, M12.
+  Built for codebooks at rest (`codebook/crypto.py`; `generate`, `demo` and the
+  dashboard seal by default). The database is planned, M12.
 - *(Planned, M12.)* Codebook is append-only. Corrections are new versions with
   a reason code.
 - *(Planned, M12.)* Every trace request is logged: actor, time, input hash,

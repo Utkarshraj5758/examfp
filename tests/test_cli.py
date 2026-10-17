@@ -86,7 +86,7 @@ def test_demo_tells_the_story(tmp_path: Path, monkeypatch) -> None:  # type: ign
     (tmp_path / "data" / "papers" / "sample.json").write_text(
         Path(SAMPLE).read_text(encoding="utf-8"), encoding="utf-8"
     )
-    result = runner.invoke(app, ["demo", "--seed", "12"])
+    result = runner.invoke(app, ["demo", "--seed", "12"], env={"TRACE_KEK": KEY})
     assert result.exit_code == 0, result.output
     assert "verdict:" in result.output
     assert "positions read:" in result.output
@@ -221,7 +221,7 @@ def test_demo_refuses_a_stale_codebook(tmp_path: Path, monkeypatch) -> None:  # 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "out").mkdir()
     save_codebook(mixed_radix_assign(paper, 1000), tmp_path / "out" / "codebook.json")
-    result = runner.invoke(app, ["demo", SAMPLE])
+    result = runner.invoke(app, ["demo", SAMPLE, "--plaintext"])
     assert result.exit_code != 0
     assert "current codebook scheme" in result.output
     assert "Traceback" not in result.output
@@ -467,3 +467,41 @@ def test_skip_fairness_names_every_skipped_check(
         assert name in warning, name
     assert "NOT machine-checked" in warning
     assert (out / "codebook.json.enc").exists()
+
+
+# --- demo seals its codebook by default, like generate ----------------------------------------
+def _demo_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+
+
+def test_demo_seals_its_codebook_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+                                            ) -> None:
+    _demo_dir(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["demo", SAMPLE, "--seed", "3"], env={"TRACE_KEK": KEY})
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "out" / "codebook.json.enc").exists()
+    assert not (tmp_path / "out" / "codebook.json").exists()
+
+
+def test_demo_without_a_key_refuses_and_names_the_opt_out(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _demo_dir(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["demo", SAMPLE], env={"TRACE_KEK": None})
+    assert result.exit_code != 0
+    assert "TRACE_KEK" in result.output and "--plaintext" in result.output
+    assert not (tmp_path / "out").exists()  # nothing written
+
+
+def test_demo_plaintext_warns_and_names_the_file(tmp_path: Path,
+                                                 monkeypatch: pytest.MonkeyPatch) -> None:
+    _demo_dir(tmp_path, monkeypatch)
+    first = runner.invoke(app, ["demo", SAMPLE, "--plaintext"], env={"TRACE_KEK": None})
+    assert first.exit_code == 0, first.output
+    path = Path("out") / "codebook.json"
+    assert (tmp_path / path).exists()
+    warning = next(line for line in first.output.splitlines() if "warning" in line)
+    assert "PLAINTEXT" in warning and "wrote" in warning and str(path) in warning
+    again = runner.invoke(app, ["demo", SAMPLE, "--plaintext"], env={"TRACE_KEK": None})
+    warning = next(line for line in again.output.splitlines() if "warning" in line)
+    assert "reused" in warning and str(path) in warning

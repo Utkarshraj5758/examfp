@@ -13,7 +13,7 @@ instruction and unit-form slots):
 * **No containment.** Neither variant, normalised (lowercase, collapsed
   whitespace, trailing punctuation dropped), may contain the other: no prefix,
   suffix or infix. ``eval/separation.py`` measured such pairs misreading at
-  0.3-4.9% (prefix) and 0.5-9.0% (suffix, infix) per read, because the reader
+  0.3-5.0% (prefix, d <= 8) and 0.5-9.0% (suffix, infix) per read, because the reader
   takes the longest variant found verbatim and a typo in the longer one leaves
   the shorter one intact (owner, 2026-10-17: extended from prefix only).
 * **Minimum edit distance.** Their case-insensitive Levenshtein distance must be
@@ -35,7 +35,7 @@ from rapidfuzz.distance import Levenshtein
 
 Check = tuple[bool, str]
 
-# Measured 2026-10-17 by eval/separation.py (1.7M reads, seed 0): the smallest
+# Measured 2026-10-17 by eval/separation.py (1,602,000 reads, seed 0): the smallest
 # distance with no misread at or above it whose pooled reads bound the rate at or
 # below MISREAD_RATE (ADR 0004, "Variant separation").
 MEASURED_MIN_EDIT_DISTANCE = 11

@@ -647,14 +647,15 @@ Details and basis are in [ADR 0004](docs/ADR/0004-step-count-rule.md),
 parts 2–4.
 
 **1. Variant separation** (`separation.py`, the `separation` check on every
-text-read slot). Sweep `eval/separation.py`: 1.7 million reads (seed 0). The 23
+text-read slot). Sweep `eval/separation.py`: 1,602,000 reads (seed 0). The 23
 text-read slots were paired with synthetic competitors at exact edit distances
 1–12, plus prefix and containment shapes, and read under the bench's attack.
 
 - Edit family misread rate by distance: 0.57%, 0.18%, 0.07%, 0.02%, 0.03%,
   0.004% for d = 1–6; 0 at d = 7–8; 1 and 14 misreads (of 69,000 reads each) at
   d = 9 and 10; 0 at d = 11–12.
-- Prefix pairs misread at 0.34–4.85%, containment pairs at 0.54–9.0%.
+- Prefix pairs misread at 0.34–4.95% (d ≤ 8; 6.6% for the single pair at
+  d = 9), containment pairs at 0.54–9.0% (by edit distance).
 - The rule fixed before the run gives **11**: 0 in 138,000 reads at d ≥ 11, 95%
   bound 2.17e-5 ≤ `MISREAD_RATE`.
 - The tail at d = 9–10 is a short variant nearly embedded in a long one ("cm²"

@@ -25,7 +25,10 @@ Two modes exist. Never conflate them in code, docs or claims:
 
 - Windows + PowerShell. Use `.\tasks.ps1 <task>`. There is no `make`.
 - PowerShell syntax in every shell command: `;` not `&&`.
-- Python 3.11, Node 20, Docker Desktop.
+- Python 3.11 is the pinned target, and CI runs it. Development so far ran on
+  Python 3.12.10 with numpy 2.5.2, outside the pins (the 3.11 pin is numpy
+  2.4.6); say which when reporting a number. Node 20 and Docker Desktop are
+  needed from M13–M14.
 - Run `$env:PYTHONIOENCODING = "utf-8"` before any command that prints ₹ or cm².
 
 ## Non-negotiables
@@ -73,19 +76,27 @@ examfp/                 core library — pure, no I/O except render/ocr
                         equivalence, unit and instruction tables, the ask
                         rule, variant separation, readability
   codebook/             rs.py, tardos.py, assign.py, crypto.py
-  decode/               ocr.py, align.py, read.py, score.py, neural.py
-  attacks.py            crop, retype, typos, paraphrase, collude
+  decode/               read.py, score.py, calibrate.py
+                        planned: ocr.py (M7), neural.py (M9), align.py (no
+                        milestone yet)
+  attacks.py            crop, retype, typos, collude; paraphrase (planned, M8)
   cli.py                typer entrypoint
 ml/                     training code — never imported by the service
-  dataset.py            synthetic (leak -> slot values) pair generation
-  train_decoder.py      transformer fine-tuning
-  adversarial.py        attacker/defender loop
-  evaluate.py           baseline vs neural comparison
+  fetch_models.py       the only download: the pinned NLI models
+  dataset.py            synthetic (leak -> slot values) pairs   (planned, M8)
+  train_decoder.py      transformer fine-tuning                 (planned, M9)
+  adversarial.py        attacker/defender loop                  (planned, M10)
+  evaluate.py           baseline vs neural comparison           (planned, M9)
 service/                FastAPI app, routers, auth, jobs, migrations
-web/                    React dashboard
-eval/                   benchmark sweeps and figures
-deploy/                 Dockerfiles, compose, Caddy, CI workflows
-docs/                   runbook, threat model, ADRs, API docs
+                        (planned, M12; an empty package today)
+api/                    static HTML dashboard (predates this layout; M13's
+                        web/ replaces it)
+web/                    React dashboard                         (planned, M13)
+eval/                   benchmark sweeps; figures (planned, M11)
+deploy/                 Dockerfiles, compose, Caddy             (planned, M14;
+                        CI lives in .github/workflows/ today)
+docs/                   ADRs; runbook and threat model (planned, M14);
+                        API docs (planned, M12)
 tests/                  mirrors examfp/, ml/, service/
 ```
 
@@ -98,10 +109,12 @@ instruction, never as a side effect of another milestone.
 - The service layer owns all I/O: DB, queue, filesystem, secrets.
 - `ml/` never imports `service/`. The service loads a versioned model artefact
   by path or registry id, nothing more.
-- The decoder exposes one interface, `SlotDecoder`, with two implementations:
-  `FuzzyDecoder` (baseline) and `NeuralDecoder`. Both satisfy the same contract
-  tests. Which one runs is configuration, not code.
-- Every trace result records the model version and codebook version used.
+- *(Planned, M9.)* The decoder exposes one interface, `SlotDecoder`, with two
+  implementations: `FuzzyDecoder` (baseline) and `NeuralDecoder`. Both satisfy
+  the same contract tests. Which one runs is configuration, not code. Today the
+  only reader is the function `read_leak` (`examfp/decode/read.py`).
+- *(Planned, M12.)* Every trace result records the model version and codebook
+  version used. Codebooks carry no version yet, and `trace` records none.
 
 ## ML discipline
 
@@ -121,14 +134,19 @@ instruction, never as a side effect of another milestone.
 
 - Envelope encryption: per-exam AES-GCM data key, wrapped by a KEK from the
   vault interface. The database stores ciphertext plus wrapped key only.
-- Codebook is append-only. Corrections are new versions with a reason code.
-- Every trace request is logged: actor, time, input hash, model version,
-  codebook version, outcome. The log is append-only.
-- Role separation: `investigator` can submit a leak and read a verdict, and can
-  never read codebook contents. `authority` can generate papers. Nobody can
-  read plaintext codewords through the API.
-- Uploaded leak files are untrusted: size-capped, type-sniffed, never executed,
-  stored outside the web root, deleted on a retention schedule.
+  Built for codebooks at rest (`codebook/crypto.py`; `generate` seals by
+  default). The database is planned, M12.
+- *(Planned, M12.)* Codebook is append-only. Corrections are new versions with
+  a reason code.
+- *(Planned, M12.)* Every trace request is logged: actor, time, input hash,
+  model version, codebook version, outcome. The log is append-only. `trace`
+  logs nothing today.
+- *(Planned, M12.)* Role separation: `investigator` can submit a leak and read
+  a verdict, and can never read codebook contents. `authority` can generate
+  papers. Nobody can read plaintext codewords through the API.
+- *(Planned, M12.)* Uploaded leak files are untrusted: size-capped,
+  type-sniffed, never executed, stored outside the web root, deleted on a
+  retention schedule. `trace` reads a local text file with no size cap today.
 
 ## How to work in a session
 

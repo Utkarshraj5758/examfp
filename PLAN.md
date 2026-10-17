@@ -14,10 +14,15 @@ acceptance test passes, `.\tasks.ps1 lint` is clean, and PLAN.md is ticked.
 - [x] **M2** Tardos code, faithful to Tardos (2003), multi-paper layering
 - [x] **M3** Crude mixed-radix `assign`, fuzzy decoder, attacks, CLI, benchmark
 
-Measured baseline to beat: **91% identification at 6 leaked questions, 100% at
-7+, 0% false identification across 1,600 single-source trials, 37 ms to score
-1,000 centres.** *Correction (M5.5): those trials contained no collusion; under
-collusion the same rule named innocent centres in up to 55% of leaks. See M5.5.*
+*Historical (M3, pre-M6 paper):* measured baseline to beat: **91%
+identification at 6 leaked questions, 100% at 7+, 0% false identification
+across 1,600 single-source trials, 37 ms to score 1,000 centres.** *Correction
+(M5.5): those trials contained no collusion; under collusion the same rule named
+innocent centres in up to 55% of leaks. See M5.5.* *Stale since M6:* on the M6
+paper, the same mixed-radix baseline identifies 87.0% at 6 questions (seed 0,
+200 trials), and `score()` takes about 3.5 ms for 1,000 centres. The paper is
+about to be rebuilt on CBSE structure (NOTES.md, M6), after which every number is
+re-measured.
 
 ---
 
@@ -332,8 +337,10 @@ checkpoint export to `models/<version>/`.
 **Acceptance:** on the M8 test split, `NeuralDecoder` beats `FuzzyDecoder` by a
 clear margin under medium and heavy paraphrase, with the comparison in one
 table. Confidence is calibrated (reliability plot, expected calibration error
-reported) because the scorer consumes it as a probability. Contract tests shared
-with `FuzzyDecoder` all pass.
+reported) because the scorer is to consume it as a probability. *Today it does
+not:* `score.py` uses confidence only as a weight in the ranking, and the
+consistency gate ignores it. So M9 includes that decision-rule change and ADR
+0003's recalibration. Contract tests shared with `FuzzyDecoder` all pass.
 
 **Prompt:**
 > Read CLAUDE.md. Build M9: the neural slot decoder. Define the SlotDecoder
@@ -452,8 +459,10 @@ appears. Dashboard never displays raw codewords.
 > Read CLAUDE.md. Build M13: the dashboard in web/ with React, TypeScript,
 > Vite and Tailwind. Four screens: create exam, review and approve variants with
 > the fairness report shown per variant, generate papers with live job progress,
-> and trace a leak showing outcome, margin, threshold, positions read versus
-> erased, ranked centres and a download link for the evidence PDF. Raw codewords
+> and trace a leak showing outcome, threshold, positions read versus erased and
+> a download link for the evidence PDF. Show the margin and the ranked centres
+> only beside an IDENTIFIED verdict or on explicit request, labelled as not a
+> verdict (CLAUDE.md rule 4; `show_ranking` in examfp/cli.py). Raw codewords
 > must never be rendered. Add a Playwright end-to-end test that drives the whole
 > flow against the compose stack and asserts the correct centre is named.
 

@@ -69,8 +69,16 @@ def test_the_minimum_is_the_start_of_the_zero_tail_with_enough_reads() -> None:
     assert suggest_min_distance(_rows({1: 9, 2: 3})) is None
 
 
-def test_the_recorded_sweep_result() -> None:
-    # The measured edit-family tallies (eval/out/separation.csv, 2026-10-17, seed 0).
+def test_recorded_snapshot_of_the_sweep() -> None:
+    """A RECORDED SNAPSHOT, not a re-measurement.
+
+    These are the edit-family tallies of one run of ``python -m eval.separation``
+    (2026-10-17, seed 0, 1,602,000 reads, about 15 minutes), pasted in by hand. The
+    suite does not re-run the sweep, so a change to the reader or the sweep that
+    moves them goes unnoticed here: re-run the sweep to re-measure. What this test
+    does check is that the pre-declared rule, applied to those tallies, gives the
+    recorded MEASURED_MIN_EDIT_DISTANCE.
+    """
     recorded = {1: 391, 2: 125, 3: 47, 4: 14, 5: 18, 6: 3, 7: 0, 8: 0, 9: 1, 10: 14, 11: 0,
                 12: 0}
     assert suggest_min_distance(_rows(recorded)) == MEASURED_MIN_EDIT_DISTANCE == 11

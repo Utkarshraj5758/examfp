@@ -154,16 +154,16 @@ Every one of the sample paper's 23 text-read slots (wording, instruction, unit
 form) was paired with synthetic competitors, and each pair was read 1,000 times
 under the benchmark's attack (render, retype, 3% adjacent-letter typos,
 `read_leak` against the whole paper), alternating which variant was shown. That
-makes 1.7 million reads in all. The paper's own pairs were read 4,000 times
-each.
+makes 1,602,000 reads in all. The paper's own reference–variant pairs were read
+4,000 times each.
 
 | family | what the competitor is | misreads per read |
 |---|---|---|
 | edit, d = 1 / 2 / 3 / 4 / 5 / 6 | random letter edits at exact Levenshtein distance d, no prefix or containment | 0.57% / 0.18% / 0.07% / 0.02% / 0.03% / 0.004% |
 | edit, d = 7 / 8 / 9 / 10 / 11 / 12 | (69,000 reads each) | 0 / 0 / 1 misread / 14 misreads / 0 / 0 |
-| prefix, k = 1 … 8 | truncated or extended by k letters before the final punctuation | 0.34% rising to 4.85% |
-| containment, k = 1 … 8 | k leading letters dropped or prepended (suffix, infix) | 0.54% rising to 9.0% |
-| the paper's 29 pairs | as written | 0, except q4 "Show your working." / "Include your working." (d = 7): 1 in 4,000 |
+| prefix, by edit distance d = 1 … 9 | the reference truncated or extended by k = 1 … 8 letters before the final punctuation | 0.34% at d = 1, up to 4.95% at d = 7 (4.85% at d = 8); the single pair at d = 9: 6.6% |
+| containment, by edit distance d = 1 … 8 | k = 1 … 8 leading letters dropped or prepended (suffix, infix) | 0.54% at d = 1, rising to 9.0% at d = 8 |
+| the paper's 26 reference–variant pairs (of its 29 pairs; the 3 between two non-reference variants were not read) | as written | 0, except q4 "Show your working." / "Include your working." (d = 7): 1 in 4,000 |
 | the M6 pair | "Show your working." / "Show your work." (d = 3) | 2 in 4,000 |
 
 **The rule for the minimum, fixed before the sweep ran:** the smallest distance

@@ -135,11 +135,15 @@ OCR in M7 and paraphrase in M8–M10 will raise the misread rate):
 - The floor counts slots, but slots carry unequal information (a 2-variant
   wording slot vs a 119-variant option order). A bits floor was measured but not
   adopted: its threshold moved between seeds (16.29 vs 18.59 bits), and at 18.59
-  it would lift 3-question leaks from about 80% to about 91%. M11 revisits it
-  with more trials.
+  it would lift 3-question leaks from about 80% to about 91%. *On the M6 paper*
+  seeds 1 and 7 give 17.79 and 16.29 bits, and at 17.79 3-question leaks would go
+  from 82–84% to 98–99%. M11 revisits it with more trials.
 - **2-question leaks are a capacity bound.** The most informative question pair
-  carries 17.79 bits, but excluding the observed false identifications needs at
-  least 18.59. More data can only raise that requirement. So no entropy-based
+  carries 17.79 bits, but excluding the observed false identifications needed at
+  least 18.59 on the pre-M6 paper. On the M6 paper seed 1 produced a false
+  identification at exactly 17.79 bits, so the requirement is at least 17.79, and
+  a bits floor identifies only strictly above it. More data can only raise that
+  requirement. So no entropy-based
   floor can recover 2-question leaks: the information needed to rule out a
   hybrid is not in the observation (sample paper, 1,000 centres).
 

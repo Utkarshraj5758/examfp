@@ -250,6 +250,13 @@ confirming the baseline was preserved verbatim. Raw data: `eval/out/results.csv`
   encrypt or keep them in the service in M12.
 - **Plaintext by default.** `--encrypt` is opt-in; flip the default once a
   vault is part of normal setup (M12).
+  *Fixed for `generate` (2026-10-17, brought forward from M12):* the audit
+  found rule 5 violated in practice (`out/` held a plaintext codebook and 1,000
+  codebook-equivalent papers; that directory was sent to the Recycle Bin).
+  `generate` now seals by default, refuses to run without `TRACE_KEK`, and
+  `--plaintext` opts out with a warning naming the file. `demo` and
+  `python -m api.dashboard` still write a plaintext demo codebook to `out/`
+  unless given `--encrypt`.
 
 ---
 

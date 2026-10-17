@@ -2,9 +2,11 @@
 
 ``python -m examfp.cli generate <paper.json> --centres N --out DIR`` writes one
 ``centre_<id>.txt`` per centre (the paper rendered as text for that centre's
-symbol vector) plus the codebook. With ``--encrypt`` the codebook is only ever
-written as an AES-GCM envelope (``codebook.json.enc``, key from ``TRACE_KEK``)
-and ``trace``/``demo`` decrypt it in memory. Side effects live here; the
+symbol vector) plus the codebook. By default the codebook is only ever written
+as an AES-GCM envelope (``codebook.json.enc``, key from ``TRACE_KEK``), and
+``trace``/``demo`` decrypt it in memory; ``--plaintext`` opts out, with a
+warning naming the file. ``demo`` and the dashboard still write a plaintext demo
+codebook unless given ``--encrypt``. Side effects live here; the
 library modules stay pure. The dashboard lives in ``api/`` (``python -m
 api.dashboard``) so this package depends on no repo tooling.
 """
@@ -146,19 +148,39 @@ def generate(
     centres: Annotated[int, typer.Option(help="Number of centres to generate.")] = 1000,
     out: Annotated[Path, typer.Option(help="Output directory.")] = Path("out"),
     seed: Annotated[int, typer.Option(help="Codebook seed (picks centre messages).")] = 0,
-    encrypt: Annotated[
-        bool, typer.Option("--encrypt/--no-encrypt", help="Seal the codebook (key: TRACE_KEK).")
+    plaintext: Annotated[
+        bool,
+        typer.Option("--plaintext", help="Opt out of encryption: write codebook.json in clear "
+                     "(a secret on disk; prints a warning naming the file)."),
     ] = False,
 ) -> None:
-    """Generate per-centre text papers and a codebook."""
-    vault = vault_from_env(encrypt)  # fail before writing anything
+    """Generate per-centre text papers and a codebook, sealed unless ``--plaintext``.
+
+    Guarantees: by default only an AES-GCM envelope (key from ``TRACE_KEK``) is
+    written, and a missing or unusable key stops the command before anything is
+    written; ``--plaintext`` writes ``codebook.json`` and warns, naming the file.
+    """
+    vault = None if plaintext else _sealing_vault()  # fail before writing anything
     paper = Paper.model_validate_json(paper_path.read_text(encoding="utf-8"))
     codebook = assign(paper, centres, seed)
     write_centre_papers(paper, codebook, out)
     path = write_codebook(codebook, out, vault)
     typer.echo(f"wrote {len(codebook)} centre files + {path.name} to {out}")
-    if vault is not None and (out / CODEBOOK_PLAIN).exists():
-        typer.echo(f"warning: an earlier plaintext {CODEBOOK_PLAIN} is still in {out}")
+    if vault is None:
+        typer.echo(f"warning: wrote a PLAINTEXT codebook to {path}. It is a secret "
+                   "(CLAUDE.md rule 5); delete it once sealed, or omit --plaintext.", err=True)
+    elif (out / CODEBOOK_PLAIN).exists():
+        typer.echo(f"warning: an earlier plaintext {CODEBOOK_PLAIN} is still in {out}",
+                   err=True)
+
+
+def _sealing_vault() -> Vault:
+    """The vault ``generate`` seals with by default; exits, naming the opt-out, if unusable."""
+    try:
+        return EnvVault.from_environ(os.environ)
+    except VaultError as exc:
+        raise _fail(f"{exc}. Codebooks are sealed by default: set TRACE_KEK, or pass "
+                    "--plaintext to write an unencrypted codebook.") from None
 
 
 @app.command()

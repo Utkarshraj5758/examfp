@@ -17,7 +17,7 @@ SAMPLE = str(Path(__file__).resolve().parents[1] / "data" / "papers" / "sample.j
 def test_generate_writes_files_and_codebook(tmp_path: Path) -> None:
     out = tmp_path / "out"
     result = runner.invoke(
-        app, ["generate", SAMPLE, "--centres", "25", "--out", str(out)]
+        app, ["generate", SAMPLE, "--centres", "25", "--out", str(out), "--plaintext"]
     )
     assert result.exit_code == 0, result.output
     files = sorted(out.glob("centre_*.txt"))
@@ -27,7 +27,7 @@ def test_generate_writes_files_and_codebook(tmp_path: Path) -> None:
 
 def test_two_centres_differ(tmp_path: Path) -> None:
     out = tmp_path / "out"
-    runner.invoke(app, ["generate", SAMPLE, "--centres", "25", "--out", str(out)])
+    runner.invoke(app, ["generate", SAMPLE, "--centres", "25", "--out", str(out), "--plaintext"])
     a = (out / "centre_0.txt").read_text(encoding="utf-8")
     b = (out / "centre_1.txt").read_text(encoding="utf-8")
     assert a != b
@@ -35,7 +35,8 @@ def test_two_centres_differ(tmp_path: Path) -> None:
 
 def test_trace_identifies_centre(tmp_path: Path) -> None:
     out = tmp_path / "out"
-    runner.invoke(app, ["generate", SAMPLE, "--centres", "100", "--out", str(out)])
+    runner.invoke(app, ["generate", SAMPLE, "--centres", "100", "--out", str(out),
+                        "--plaintext"])
     # Build a leak from the tail of a known centre's rendered paper.
     full = (out / "centre_42.txt").read_text(encoding="utf-8").splitlines()
     leak = tmp_path / "leak.txt"
@@ -103,10 +104,10 @@ def _no_plaintext_codebook_anywhere(root: Path) -> None:
             assert b'"q1::intro"' not in path.read_bytes(), f"codebook content in {path}"
 
 
-def test_generate_encrypt_never_writes_plaintext_codebook(tmp_path: Path) -> None:
+def test_generate_seals_the_codebook_by_default(tmp_path: Path) -> None:
     out = tmp_path / "out"
     result = runner.invoke(
-        app, ["generate", SAMPLE, "--centres", "25", "--out", str(out), "--encrypt"],
+        app, ["generate", SAMPLE, "--centres", "25", "--out", str(out)],
         env={"TRACE_KEK": KEY},
     )
     assert result.exit_code == 0, result.output
@@ -115,21 +116,34 @@ def test_generate_encrypt_never_writes_plaintext_codebook(tmp_path: Path) -> Non
     _no_plaintext_codebook_anywhere(tmp_path)
 
 
-def test_generate_encrypt_without_key_fails_before_writing(tmp_path: Path) -> None:
+def test_generate_without_a_key_refuses_and_names_the_opt_out(tmp_path: Path) -> None:
     out = tmp_path / "out"
     result = runner.invoke(
-        app, ["generate", SAMPLE, "--centres", "5", "--out", str(out), "--encrypt"],
+        app, ["generate", SAMPLE, "--centres", "5", "--out", str(out)],
         env={"TRACE_KEK": None},
     )
     assert result.exit_code != 0
-    assert "TRACE_KEK" in result.output
+    assert "TRACE_KEK" in result.output and "--plaintext" in result.output
     assert not out.exists() or not any(out.iterdir())  # nothing written
+
+
+def test_generate_plaintext_warns_and_names_the_file_written(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    result = runner.invoke(
+        app, ["generate", SAMPLE, "--centres", "5", "--out", str(out), "--plaintext"],
+        env={"TRACE_KEK": None},
+    )
+    assert result.exit_code == 0, result.output
+    written = out / "codebook.json"
+    assert written.exists() and not (out / "codebook.json.enc").exists()
+    warning = next(line for line in result.output.splitlines() if "warning" in line)
+    assert "PLAINTEXT" in warning and str(written) in warning
 
 
 def test_trace_decrypts_encrypted_codebook_in_memory(tmp_path: Path) -> None:
     out = tmp_path / "out"
     runner.invoke(
-        app, ["generate", SAMPLE, "--centres", "100", "--out", str(out), "--encrypt"],
+        app, ["generate", SAMPLE, "--centres", "100", "--out", str(out)],
         env={"TRACE_KEK": KEY},
     )
     leak = tmp_path / "leak.txt"
@@ -150,7 +164,7 @@ def test_trace_decrypts_encrypted_codebook_in_memory(tmp_path: Path) -> None:
 def test_trace_with_wrong_key_fails_cleanly(tmp_path: Path) -> None:
     out = tmp_path / "out"
     runner.invoke(
-        app, ["generate", SAMPLE, "--centres", "10", "--out", str(out), "--encrypt"],
+        app, ["generate", SAMPLE, "--centres", "10", "--out", str(out)],
         env={"TRACE_KEK": KEY},
     )
     leak = tmp_path / "leak.txt"
@@ -168,7 +182,8 @@ def test_trace_with_wrong_key_fails_cleanly(tmp_path: Path) -> None:
 
 def test_leak_forges_the_centre_of_the_generated_codebook(tmp_path: Path) -> None:
     out = tmp_path / "out"
-    runner.invoke(app, ["generate", SAMPLE, "--centres", "100", "--out", str(out)])
+    runner.invoke(app, ["generate", SAMPLE, "--centres", "100", "--out", str(out),
+                        "--plaintext"])
     leak = tmp_path / "leak.txt"
     result = runner.invoke(
         app,
@@ -212,7 +227,8 @@ def _collusion_trace(
 
     paper = Paper.model_validate_json(Path(SAMPLE).read_text(encoding="utf-8"))
     out = tmp_path / "out"
-    runner.invoke(app, ["generate", SAMPLE, "--centres", "1000", "--out", str(out)])
+    runner.invoke(app, ["generate", SAMPLE, "--centres", "1000", "--out", str(out),
+                        "--plaintext"])
     book = assign(paper, 1000, seed=0)
     leak = tmp_path / "leak.txt"
     for seed in range(30):
@@ -276,7 +292,8 @@ def test_trace_never_names_three_or_more(tmp_path: Path) -> None:
 
 def test_trace_shows_gate_evidence(tmp_path: Path) -> None:
     out = tmp_path / "out"
-    runner.invoke(app, ["generate", SAMPLE, "--centres", "100", "--out", str(out)])
+    runner.invoke(app, ["generate", SAMPLE, "--centres", "100", "--out", str(out),
+                        "--plaintext"])
     leak = tmp_path / "leak.txt"
     leak.write_text((out / "centre_7.txt").read_text(encoding="utf-8"), encoding="utf-8")
     result = runner.invoke(

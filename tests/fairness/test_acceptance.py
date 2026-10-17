@@ -4,13 +4,13 @@ Acceptance (PLAN.md M6): at most 2 false rejections on the 29 fair entries,
 zero false acceptances on the 11 unfair; the model loads lazily and scores a
 pair in under 300 ms on CPU; the sample paper passes every check.
 
-**Status (owner decision, 2026-10-17): the false-rejection budget is not met**
-with ``cross-encoder/nli-deberta-v3-small@fa28048`` at threshold 0.5. Three fair
-entries are rejected (F11, F13, F14), all by NLI, and no threshold separates
-them from the unfair U09 and U10. The owner kept the model and threshold; the
-failure is recorded in NOTES.md (M6) and the budget test is a strict xfail, so
-it fails loudly the day it starts passing. The measured rejection set is pinned,
-so any drift (model, threshold or code) shows up as a failure here.
+**Status (2026-10-17): the false-rejection budget is not met.** Since the
+instruction table (owner decision), every fair instruction phrasing the sample
+paper does not use fails closed; the measured rejection set is
+``RECORDED_FALSE_REJECTIONS`` in ``tests/fairness/support.py`` (NOTES.md, M6).
+The budget test is a strict xfail, so it fails loudly the day it starts
+passing, and the pinned set makes any drift (model, threshold, tables or code)
+fail a test.
 """
 
 from __future__ import annotations
@@ -25,14 +25,12 @@ from examfp.fairness.check import FairnessChecker, FairnessReport
 from examfp.fairness.nli import CrossEncoderNli
 from examfp.fairness.readability import wordfreq_zipf
 from examfp.models import Paper
-from tests.fairness.support import ROOT, VIOLATION_CHECKS
+from tests.fairness.support import RECORDED_FALSE_REJECTIONS, ROOT, caught_for_its_label
 
 pytestmark = pytest.mark.local_model
 
 SAMPLE = ROOT / "data" / "papers" / "sample.json"
 FALSE_REJECTION_BUDGET = 2
-# Measured 2026-10-17, nli-deberta-v3-small@fa28048, threshold 0.5 (NOTES.md, M6).
-RECORDED_FALSE_REJECTIONS = frozenset({"F11", "F13", "F14"})
 
 
 @pytest.fixture(scope="module")
@@ -57,8 +55,8 @@ def test_no_false_acceptances(fixture_reports: list[tuple[dict[str, Any], Fairne
     for entry, report in fixture_reports:
         if not entry["fair"]:
             assert not report.passed, entry["id"]
-            # Each unfair entry fails exactly the rule on its label.
-            assert report.failed <= VIOLATION_CHECKS[entry["violation"]], (entry["id"], report)
+            # The labelled rule rejects it; only structural rules may fail beside it.
+            assert caught_for_its_label(entry, report), (entry["id"], report)
         if report.nli_version is not None:
             assert report.nli_version == local_nli.version
 
@@ -66,14 +64,13 @@ def test_no_false_acceptances(fixture_reports: list[tuple[dict[str, Any], Fairne
 def test_false_rejections_are_the_recorded_ones(
     fixture_reports: list[tuple[dict[str, Any], FairnessReport]]
 ) -> None:
-    assert _false_rejections(fixture_reports) == RECORDED_FALSE_REJECTIONS
-    for entry, report in fixture_reports:
-        if entry["id"] in RECORDED_FALSE_REJECTIONS:
-            assert report.failed == frozenset({"nli"}), entry["id"]
+    rejected = {e["id"]: sorted(r.failed) for e, r in fixture_reports
+                if e["fair"] and not r.passed}
+    assert set(rejected) == RECORDED_FALSE_REJECTIONS, rejected
 
 
-@pytest.mark.xfail(strict=True, reason="M6 acceptance open: 3 false rejections (F11, F13, F14) "
-                   "vs a budget of 2 with the pinned model; NOTES.md, M6")
+@pytest.mark.xfail(strict=True, reason="M6 acceptance open: the recorded false rejections "
+                   "exceed the budget of 2; NOTES.md, M6")
 def test_false_rejections_within_budget(
     fixture_reports: list[tuple[dict[str, Any], FairnessReport]]
 ) -> None:

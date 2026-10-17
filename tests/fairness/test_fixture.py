@@ -11,7 +11,15 @@ from typing import Any
 
 from examfp.fairness.check import Channel, FairnessChecker, slot_channel
 from examfp.models import OptionOrderSlot, Paper, Question
-from tests.fairness.support import VIOLATION_CHECKS, RaisingNli, SpyNli, common, load_fixture
+from tests.fairness.support import (
+    RECORDED_FALSE_REJECTIONS,
+    VIOLATION_CHECKS,
+    RaisingNli,
+    SpyNli,
+    caught_for_its_label,
+    common,
+    load_fixture,
+)
 
 
 def _question(paper: Paper, qid: str) -> Question:
@@ -36,10 +44,10 @@ def test_fixture_channels_match_the_checker(
     for entry in fixture_entries:
         slot = next(s for s in _question(sample_paper, entry["question"]).slots
                     if s.name == entry["slot"])
-        # The fixture's "wording" covers unit forms too; the checker gives unit forms
-        # their own path (the unit table replaces NLI, owner decision 2026-10-17).
+        # The fixture's "wording" covers instruction phrasing and unit forms too; the
+        # checker gives each its own table instead of NLI (owner decisions, 2026-10-17).
         expected = ({Channel.NUMERIC} if entry["channel"] == "numeric"
-                    else {Channel.WORDING, Channel.UNIT_FORM})
+                    else {Channel.WORDING, Channel.INSTRUCTION, Channel.UNIT_FORM})
         assert slot_channel(slot) in expected, entry["id"]
 
 
@@ -54,31 +62,40 @@ def test_approved_flags_match_the_sample_paper(
         assert in_paper == entry["approved"], entry["id"]
 
 
+def _channel(paper: Paper, entry: dict[str, Any]) -> Channel:
+    slot = next(s for s in _question(paper, entry["question"]).slots if s.name == entry["slot"])
+    return slot_channel(slot)
+
+
 def test_entries_decided_without_the_model(
     sample_paper: Paper, fixture_entries: list[dict[str, Any]]
 ) -> None:
-    # Numeric entries and U11 (numbers differ) must be decided before any model call.
+    # Numeric, instruction and unit-form entries, and U11 (numbers differ), must be
+    # decided before any model call: only stem wording ever reaches NLI.
     checker = FairnessChecker(RaisingNli(), common)
-    decided = [e for e in fixture_entries if e["channel"] == "numeric" or e["id"] == "U11"]
-    assert len(decided) == 15
+    decided = [e for e in fixture_entries
+               if _channel(sample_paper, e) is not Channel.WORDING or e["id"] == "U11"]
+    assert len(decided) == 37
     for entry in decided:
         report = checker.check_candidate(
             _question(sample_paper, entry["question"]), entry["slot"], entry["values"])
         if entry["fair"]:
-            assert report.passed, (entry["id"], report)
+            assert report.passed is (entry["id"] not in RECORDED_FALSE_REJECTIONS), (
+                entry["id"], report)
         else:
-            # Each unfair entry fails exactly the rule on its label.
-            assert report.failed, entry["id"]
-            assert report.failed <= VIOLATION_CHECKS[entry["violation"]], (entry["id"], report)
+            assert caught_for_its_label(entry, report), (entry["id"], report)
 
 
-def test_fair_wording_entries_pass_every_check_but_nli(
+def test_fair_stem_wording_passes_every_check_but_nli(
     sample_paper: Paper, fixture_entries: list[dict[str, Any]]
 ) -> None:
-    # With a model that entails everything, only numbers and readability decide.
+    # With a model that entails everything, the structural rules, numbers and
+    # readability decide; none of them rejects a fair stem paraphrase.
     checker = FairnessChecker(SpyNli(), common)
-    for entry in fixture_entries:
-        if entry["channel"] == "wording" and entry["fair"]:
-            report = checker.check_candidate(
-                _question(sample_paper, entry["question"]), entry["slot"], entry["values"])
-            assert report.passed, (entry["id"], report)
+    wording = [e for e in fixture_entries
+               if e["fair"] and _channel(sample_paper, e) is Channel.WORDING]
+    assert [e["id"] for e in wording] == ["F16", "F17", "F18"]
+    for entry in wording:
+        report = checker.check_candidate(
+            _question(sample_paper, entry["question"]), entry["slot"], entry["values"])
+        assert report.passed, (entry["id"], report)

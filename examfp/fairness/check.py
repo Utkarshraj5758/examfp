@@ -1,17 +1,25 @@
-"""The fairness checker: one :class:`FairnessReport` per variant, three channels never mixed.
+"""The fairness checker: one :class:`FairnessReport` per variant, channels never mixed.
 
 Every candidate is compared with symbol 0 of the same slot (the reference),
 every other slot held at symbol 0. The slot decides the channel (PLAN.md M6,
-decision 1):
+decision 1, and the owner's rulings of 2026-10-17):
 
-* **Wording** (unbanded text slots): the numbers in the two question texts
-  must be identical; then NLI entailment both ways (:mod:`examfp.fairness.nli`);
-  then readability (:mod:`examfp.fairness.readability`). In that order,
-  stopping at the first failure, so a pair whose numbers differ never reaches
-  the model. Never SymPy.
-* **Unit form**: as wording, but the owner-approved unit table
-  (:mod:`examfp.fairness.units`) replaces NLI (owner decision, 2026-10-17: the
-  NLI tokenizer cannot read ² or ³). Never NLI, never SymPy.
+* **Every text-read slot** (wording, instruction, unit form) first passes
+  **separation** (:mod:`examfp.fairness.separation`): no variant a prefix of
+  another, and a measured minimum edit distance, so the reader can tell them
+  apart.
+* **Wording** (unbanded text slots whose reference is not instruction
+  phrasing): the **ask** rule (:mod:`examfp.fairness.ask`: the slot must sit in
+  the stem, never in the ask), the numbers in the two question texts identical,
+  then NLI entailment both ways (:mod:`examfp.fairness.nli`), then readability
+  (:mod:`examfp.fairness.readability`). The model is consulted only when the
+  ask rule and the numbers both pass, and readability only when it accepts.
+  Never SymPy.
+* **Instruction** (unbanded text slots whose reference is in the instruction
+  table): numbers, the instruction table (:mod:`examfp.fairness.instructions`),
+  then readability. Never NLI, never SymPy.
+* **Unit form**: numbers, the unit table (:mod:`examfp.fairness.units`; the NLI
+  tokenizer cannot read ² or ³), then readability. Never NLI, never SymPy.
 * **Numeric** (banded groups): exact answer (:mod:`examfp.fairness.answers`,
   SymPy), digit counts and trivial operands (the frozen band validator), then
   the step rule of ADR 0004 (:mod:`examfp.fairness.bands`). Answer, digits and
@@ -34,7 +42,16 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from examfp.fairness import answers, bands, nli, readability, units
+from examfp.fairness import (
+    answers,
+    ask,
+    bands,
+    instructions,
+    nli,
+    readability,
+    separation,
+    units,
+)
 from examfp.fairness.nli import NliBackend
 from examfp.fairness.readability import ReadabilityTolerance, Zipf
 from examfp.models import (
@@ -54,6 +71,7 @@ _LETTERS = "ABCDEFGHIJ"
 
 class Channel(StrEnum):
     WORDING = "wording"
+    INSTRUCTION = "instruction"
     UNIT_FORM = "unit_form"
     NUMERIC = "numeric"
     OPTION_ORDER = "option_order"
@@ -98,6 +116,7 @@ class FairnessReport:
 class FairnessConfig:
     nli_threshold: float = nli.DEFAULT_THRESHOLD
     readability: ReadabilityTolerance = field(default_factory=ReadabilityTolerance)
+    min_edit_distance: int = separation.MIN_EDIT_DISTANCE
 
 
 def slot_channel(slot: Slot) -> Channel:
@@ -108,6 +127,8 @@ def slot_channel(slot: Slot) -> Channel:
         return Channel.UNIT_FORM
     if slot.difficulty_band is not None:
         return Channel.NUMERIC
+    if len(slot.fills) == 1 and instructions.instruction_class(slot.variants[0].values[0]):
+        return Channel.INSTRUCTION
     return Channel.WORDING
 
 
@@ -175,9 +196,10 @@ def _skipped(name: str, because: str) -> CheckResult:
 class FairnessChecker:
     """Judges variants against their reference, one channel per slot kind.
 
-    Invariant: wording pairs reach ``nli`` only when their numbers are identical;
-    unit-form, numeric and option-order variants never reach it; wording and unit
-    forms never reach SymPy or band arithmetic.
+    Invariant: a wording pair reaches ``nli`` only when its slot sits in the stem
+    and its numbers are identical; instruction, unit-form, numeric and
+    option-order variants never reach it; no text slot reaches SymPy or band
+    arithmetic.
     """
 
     def __init__(self, nli_backend: NliBackend, zipf: Zipf,
@@ -186,28 +208,42 @@ class FairnessChecker:
         self.zipf = zipf
         self.config = config or FairnessConfig()
 
-    # --- wording and unit forms --------------------------------------------------------------
+    # --- wording, instruction and unit forms ----------------------------------------------
     def _textual(self, question: Question, slot: TextSlot | UnitFormSlot,
                  values: Sequence[str]) -> FairnessReport:
-        """Numbers, then NLI (wording) or the unit table (unit form), then readability."""
+        """Separation; the ask rule (wording); numbers; NLI or a table; readability."""
         channel = slot_channel(slot)
-        middle = "units" if channel is Channel.UNIT_FORM else "nli"
+        middle = {Channel.UNIT_FORM: "units", Channel.INSTRUCTION: "instruction"}.get(
+            channel, "nli")
+        # The reader matches a text slot on its first value, so separation does too.
+        checks = [CheckResult("separation", *separation.check_separation(
+            values[0], [v.values[0] for v in slot.variants], self.config.min_edit_distance))]
+        blocked: str | None = None
+        if channel is Channel.WORDING:
+            ask_check = CheckResult("ask", *ask.check_ask(question, slot))
+            checks.append(ask_check)
+            if not ask_check.passed:
+                blocked = "the wording slot is not confined to the stem"
         reference = reference_text(question)
         candidate = candidate_text(question, slot.name, values)
         ref_numbers, cand_numbers = numbers(reference), numbers(candidate)
         same = ref_numbers == cand_numbers
-        checks = [CheckResult(
+        checks.append(CheckResult(
             "numbers", same,
             "numbers identical to the reference" if same else
             f"numbers differ: {sorted(cand_numbers.elements())} vs the reference's "
-            f"{sorted(ref_numbers.elements())}")]
-        version: str | None = None
+            f"{sorted(ref_numbers.elements())}"))
         if not same:
-            checks += [_skipped(middle, "the numbers differ"),
-                       _skipped("readability", "the numbers differ")]
+            blocked = blocked or "the numbers differ"
+        version: str | None = None
+        if blocked is not None:
+            checks += [_skipped(middle, blocked), _skipped("readability", blocked)]
         else:
             if channel is Channel.UNIT_FORM:
                 passed, reason = units.check_unit_form(slot.variants[0].values[0], values[0])
+            elif channel is Channel.INSTRUCTION:
+                passed, reason = instructions.check_instruction(slot.variants[0].values[0],
+                                                                values[0])
             else:
                 passed, reason = nli.check_entailment(
                     reference, candidate, self.nli, self.config.nli_threshold)
@@ -273,7 +309,8 @@ class FairnessChecker:
         Guarantees: covers every permutation of every option-order slot (judged
         against the slot's own options), every variant of every numeric group, the
         reference included (its answer and band are checked too), and every
-        non-reference variant of every wording and unit-form slot.
+        non-reference variant of every wording, instruction and unit-form slot
+        (separation compares each against all the others, so every pair is seen).
         """
         reports: list[FairnessReport] = []
         for question in paper.questions:

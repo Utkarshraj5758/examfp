@@ -49,7 +49,7 @@ def test_slot_channels(sample_paper: Paper) -> None:
     q1 = _q(sample_paper, "q1")
     kinds = {s.name: slot_channel(s) for s in q1.slots}
     assert kinds == {"intro": Ch.WORDING, "speed": Ch.NUMERIC, "unit": Ch.UNIT_FORM,
-                     "lead": Ch.WORDING, "closing": Ch.WORDING}
+                     "lead": Ch.INSTRUCTION, "closing": Ch.INSTRUCTION}
     assert slot_channel(_q(sample_paper, "q2").slots[1]) is Ch.OPTION_ORDER
 
 
@@ -96,14 +96,32 @@ def test_report_passes_only_when_every_check_ran_and_passed() -> None:
 
 
 # --- wording channel ------------------------------------------------------------------------
-def test_wording_runs_numbers_then_nli_then_readability(sample_paper: Paper) -> None:
+TEXT_CHANNELS = (Ch.WORDING, Ch.INSTRUCTION, Ch.UNIT_FORM)
+
+
+def test_wording_runs_separation_ask_numbers_nli_then_readability(sample_paper: Paper) -> None:
     spy = SpyNli()
-    report = FairnessChecker(spy, common).check_candidate(_q(sample_paper, "q1"), "lead", ["Find"])
+    report = FairnessChecker(spy, common).check_candidate(
+        _q(sample_paper, "q1"), "intro", ["While driving to Nashik,"])
     assert report.channel is Ch.WORDING
-    assert [c.name for c in report.checks] == ["numbers", "nli", "readability"]
+    assert [c.name for c in report.checks] == [
+        "separation", "ask", "numbers", "nli", "readability"]
     assert report.passed
     assert report.nli_version == "spy-nli@0"
     assert len(spy.calls) == 2  # both directions
+
+
+def test_a_wording_slot_in_the_ask_never_reaches_the_model() -> None:
+    # Held-out N06 as a slot: the quantity asked may not vary, whatever NLI thinks.
+    question = Question.model_validate({
+        "id": "t", "template": "A circle has a radius of 7 cm.\n{{lead}} its {{what}}.",
+        "answer": "44 cm",
+        "slots": [{"name": "lead", "variants": ["Calculate", "Work out"]},
+                  {"name": "what", "variants": ["circumference", "area"]}]})
+    report = FairnessChecker(RaisingNli(), common).check_candidate(question, "what", ["area"])
+    assert report.failed == frozenset({"ask"})
+    assert report.nli_version is None
+    assert next(c for c in report.checks if c.name == "nli").ran is False
 
 
 def test_wording_with_different_numbers_never_reaches_the_model(sample_paper: Paper) -> None:
@@ -111,14 +129,15 @@ def test_wording_with_different_numbers_never_reaches_the_model(sample_paper: Pa
     report = checker.check_candidate(
         _q(sample_paper, "q1"), "intro", ["After a 30-minute stop on the way to Nashik,"])
     assert not report.passed
-    assert report.failed == frozenset({"numbers"})
+    # It also contains the reference "On the way to Nashik,": a structural failure.
+    assert report.failed == frozenset({"separation", "numbers"})
     assert report.nli_version is None
-    assert [c.ran for c in report.checks] == [True, False, False]
+    assert [c.ran for c in report.checks] == [True, True, True, False, False]
 
 
 def test_nli_rejection_fails_the_nli_check_only(sample_paper: Paper) -> None:
     report = FairnessChecker(RejectingNli(), common).check_candidate(
-        _q(sample_paper, "q3"), "closing", ["Give your answer in square metres."])
+        _q(sample_paper, "q1"), "intro", ["On the Pune highway,"])
     assert report.failed == frozenset({"nli"})
 
 
@@ -134,10 +153,58 @@ def test_wording_never_uses_sympy_or_band_arithmetic(
     checker = FairnessChecker(SpyNli(), common)
     for question in sample_paper.questions:
         for slot in question.slots:
-            if slot_channel(slot) in (Ch.WORDING, Ch.UNIT_FORM):
+            if slot_channel(slot) in TEXT_CHANNELS:
                 assert isinstance(slot, TextSlot | UnitFormSlot)
                 for variant in slot.variants:
                     checker.check_candidate(question, slot.name, variant.values)
+
+
+# --- instruction phrasing: the curated table, never NLI ----------------------------------------
+def test_instructions_use_the_table_never_the_model(sample_paper: Paper) -> None:
+    checker = FairnessChecker(RaisingNli(), common)
+    report = checker.check_candidate(_q(sample_paper, "q1"), "closing", ["Include your working."])
+    assert report.channel is Ch.INSTRUCTION
+    assert [c.name for c in report.checks] == [
+        "separation", "numbers", "instruction", "readability"]
+    assert report.passed and report.nli_version is None
+    # U09 and U10: a changed ask in an instruction slot is caught by the table.
+    unit = checker.check_candidate(_q(sample_paper, "q3"), "closing",
+                                   ["Give your answer in square metres."])
+    assert unit.failed == frozenset({"instruction"})
+    other = checker.check_candidate(_q(sample_paper, "q5"), "lead",
+                                    ["Identify a value other than"])
+    assert other.failed == frozenset({"separation", "instruction"})  # also a prefix of "Identify"
+
+
+def test_unlisted_fair_synonyms_fail_closed(sample_paper: Paper) -> None:
+    report = FairnessChecker(RaisingNli(), common).check_candidate(
+        _q(sample_paper, "q1"), "lead", ["Find"])
+    assert report.failed == frozenset({"instruction"})
+
+
+def test_instruction_variants_never_reach_the_model(sample_paper: Paper) -> None:
+    checker = FairnessChecker(RaisingNli(), common)
+    for question in sample_paper.questions:
+        for slot in question.slots:
+            if slot_channel(slot) is Ch.INSTRUCTION:
+                assert isinstance(slot, TextSlot)
+                for variant in slot.variants:
+                    assert checker.check_candidate(question, slot.name, variant.values).passed
+
+
+# --- separation: the reader must tell a slot's variants apart ----------------------------------
+def test_a_near_prefix_variant_fails_separation(sample_paper: Paper) -> None:
+    report = FairnessChecker(RaisingNli(), common).check_candidate(
+        _q(sample_paper, "q1"), "closing", ["Show your work."])
+    assert "separation" in report.failed
+
+
+def test_the_minimum_distance_is_configurable(sample_paper: Paper) -> None:
+    from examfp.fairness.check import FairnessConfig
+
+    strict = FairnessChecker(RaisingNli(), common, FairnessConfig(min_edit_distance=50))
+    report = strict.check_candidate(_q(sample_paper, "q1"), "closing", ["Include your working."])
+    assert report.failed == frozenset({"separation"})
 
 
 # --- unit forms: the owner-approved table, never NLI ------------------------------------------
@@ -145,7 +212,7 @@ def test_unit_forms_use_the_table_never_the_model(sample_paper: Paper) -> None:
     checker = FairnessChecker(RaisingNli(), common)
     report = checker.check_candidate(_q(sample_paper, "q3"), "unit", ["square centimetres"])
     assert report.channel is Ch.UNIT_FORM
-    assert [c.name for c in report.checks] == ["numbers", "units", "readability"]
+    assert [c.name for c in report.checks] == ["separation", "numbers", "units", "readability"]
     assert report.passed and report.nli_version is None
     wrong = checker.check_candidate(_q(sample_paper, "q3"), "unit", ["square metres"])
     assert wrong.failed == frozenset({"units"})
@@ -219,9 +286,9 @@ def test_check_paper_covers_every_variant(sample_paper: Paper) -> None:
     expected = 0
     for question in sample_paper.questions:
         for slot in question.slots:
-            # Wording and unit-form symbol 0 is the reference itself; numeric references
-            # are checked for answer and band; every permutation against the options.
-            textual = slot_channel(slot) in (Ch.WORDING, Ch.UNIT_FORM)
+            # Text-slot symbol 0 is the reference itself; numeric references are
+            # checked for answer and band; every permutation against the options.
+            textual = slot_channel(slot) in TEXT_CHANNELS
             expected += slot.alphabet - 1 if textual else slot.alphabet
     assert len(reports) == expected
 

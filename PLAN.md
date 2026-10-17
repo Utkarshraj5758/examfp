@@ -253,6 +253,12 @@ channel (`units.py`).
     substance. The table added coverage, not model quality. Stopped and
     reported without tuning, as instructed.
 
+- *CBSE finding (2026-10-17):* real CBSE board papers have no per-question
+  working instruction and use four-option MCQs with section-level choice
+  wording. 8 of the sample paper's 31 positions, and its five-option MCQs, are
+  invented carriers. **Next session rebuilds the paper on CBSE structure and
+  re-measures every number** (NOTES.md, M6).
+
 Numbers, findings and open items are in NOTES.md, M6. **To close M6:** meet
 the false-rejection budget without tuning on the fixture. Every remaining
 rejection is a table miss, so this is an owner decision on the instruction

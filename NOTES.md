@@ -727,10 +727,117 @@ counts. The checks per channel live in `examfp.fairness.check.CHECKS`, which a
 test keeps equal to what the checker runs. On the sample paper, with the real
 model: all 414 variants pass, about 35 s with a cold model load.
 
+### Finding: the sample paper carries fingerprints on features CBSE papers do not have (2026-10-17)
+
+Building the instruction table from a domain source (consolidation session, step
+4) turned up a finding larger than the table. **Real CBSE board papers contain
+no per-question working instruction, and their MCQs have four options with
+section-level choice wording.** So **8 of the sample paper's 31 positions** (five
+"Show your working." closings and three option-choice closings) sit on a textual
+feature that does not exist in the deployment target. Its three five-option MCQs
+(alphabet 5! − 1 = 119) do not match the target either (4! − 1 = 23). These
+are **invented carriers, not unlisted variants**. Not fixed here: the next
+session rebuilds the paper.
+
+**Source.** CBSE Class X main examination 2025, downloaded 2026-10-17 with owner
+approval from `www.cbse.gov.in/cbsenew/question-paper/2025/X/`:
+
+| archive | bytes | SHA-256 |
+|---|--:|---|
+| `041_Mathematics_Standard.zip` | 54,529,382 | `438fc0ef5e02bbf513d0da090c7846e64bd631d595f48eb919e1ba3dcfd69ebf` |
+| `086_Science.zip` | 43,732,463 | `5e288459ad2558db9b6ee2fa652c123e1842047daaa0452133d6d365d2dc426d` |
+
+- **What was read:** 18 papers with a text layer (Mathematics 30/1–30/3 and
+  Science 31/1–31/3, three sets each). Sets 4–6 and the visually-impaired
+  versions are scanned images and were not read (no OCR). Only the English text
+  was read; the Hindi text layer does not decode.
+- **What could not be used:** `cbseacademic.nic.in`'s sample papers, because
+  its TLS certificate expired on 2026-10-17. No official state-board site
+  exposed papers, so the source is CBSE alone.
+- **Method:** text extracted with pypdf. Sentence openers were counted first,
+  with no word list, to find the commands the papers use. Each command was then
+  counted wherever it opens a clause (sentence start, after punctuation, or
+  after "then", "hence", "and", "also", "so").
+- **Reproducibility:** the extraction scripts were scratch tools run from
+  `%TEMP%` and are not committed. The counts reproduce from the two archives by
+  the method above; the rebuild session should commit the extraction tool with
+  the new table.
+
+**Command frequencies** (clause-initial occurrences; papers containing it, of 18):
+
+| command | count | papers | | command | count | papers |
+|---|--:|--:|---|---|--:|--:|
+| Find | 116 | 13 | | Justify | 16 | 9 |
+| Write | 58 | 9 | | Determine | 12 | 10 |
+| Name | 35 | 9 | | Identify | 12 | 7 |
+| State | 34 | 9 | | Show | 11 | 9 |
+| Prove | 34 | 9 | | List | 10 | 6 |
+| Give | 33 | 10 | | Mark | 8 | 6 |
+| Select | 32 | 18 | | Mention | 4 | 4 |
+| Draw | 29 | 9 | | Define, Illustrate, Observe, Match, Choose | 3 each | 3 each |
+| Explain | 23 | 9 | | Differentiate, Describe | 1 each | 1 each |
+| Calculate | 17 | 10 | | | | |
+
+**Zero counts — evidence, not gaps.**
+
+- **"Work out": 0. "Write down": 0.** Also 0: Evaluate, Compute, Solve,
+  Verify, Suggest, Predict, Complete, Fill, Express, Obtain, Construct, Tick.
+- The sample paper's lead variant "Work out" (five questions) and the fixture's
+  fair "Write down" (F09) are absent from the target.
+- **No per-question working instruction occurs in any of the 18 papers.** No
+  sentence asks for working. "steps" and "method" appear only as subject
+  content ("Write the main steps to culture yeast", "State in brief the method
+  of preparation of …").
+- **Option choice is section-level and four-option only.** "Select and write
+  the most appropriate option out of the four options given for each of the
+  questions …" appears at the head of Section A in 9 papers. The
+  assertion–reason instruction "Select the correct answer to these questions
+  from the codes (A), (B), (C) and (D) as given below." appears in all 18.
+  There is no per-question closing such as "Choose one option only."
+
+**What a CBSE-sourced table would do** (simulated in memory, not adopted). The
+table: compute = Find / Calculate / Determine; state a fact = State / Name /
+Identify / Give / Write / Mention; the two section-level choice sentences.
+
+- **Fixture:** 8 false rejections (F02 and F05 "Work out", F09 "Write down",
+  and F11–F15, whose closing slots would fall to the ask rule) and 0 false
+  acceptances. U09 would then be caught only by the ask rule.
+- **Sample paper:** it would fail 13 of its own variants, so `generate` would
+  refuse it.
+- **Held-out set:** unaffected (55/60; 55/59 on open prose).
+- The instruction table in `examfp/fairness/instructions.py` is unchanged.
+
+**Next session: rebuild the paper on CBSE structure.** That means four-option
+MCQs with section-level choice wording, no per-question working closings, CBSE
+command phrasings, and the instruction table rebuilt from CBSE vocabulary.
+**Every capacity, identification and calibration number will then be
+re-measured against the rebuilt paper.** That covers capacity and RS packing,
+the k-sweep and region sweep, the ADR 0003 misread rate and floor, collusion and
+pair accuracy, the separation sweep and the fairness acceptance. Committing the
+benchmark output with run cards (consolidation step 7) waits for that, so it
+does not freeze numbers about to go stale.
+
+**Predictions to test on the rebuilt paper (not claims):**
+
+1. *Dropping the wording closings raises the durable fraction above the current
+   67.5%*, since wording is the fragile channel. On the current structure,
+   removing the 8 closing slots and moving to four-option MCQs gives
+   32.39 / 43.39 = **74.6%** by arithmetic.
+2. *Four-option MCQs cut each option slot from log₂(119) = 6.89 to
+   log₂(23) = 4.52 bits, so total payload should land near 38–42 bits rather
+   than 58.51* (owner's estimate). Arithmetic on the current structure (−8.00
+   bits for the closings, −7.11 for the three option slots) gives **43.39 bits**,
+   slightly above that range. Landing in 38–42 needs about 1.4–5.4 more bits
+   removed elsewhere in the rebuild.
+   - Fewer symbols may also change the RS shape (n = 7 today; 1,000 centres
+     need k = 2), so `rs_shape` must be re-checked.
+
 ### Open items
 
 - **M6 acceptance is open:** 9 false rejections against a budget of 2, all
-  fail-closed misses of the instruction table. Closing needs an owner decision
+  fail-closed misses of the instruction table. Superseded in substance by the
+  CBSE finding above: the paper is rebuilt first, then the table, then the
+  acceptance is re-run. Closing needs an owner decision
   on the table's coverage, from a source other than the fixture (for example a
   published command-word glossary), or on the budget itself.
 - **Separation by distance is open:** edit distance does not see near-embedding.

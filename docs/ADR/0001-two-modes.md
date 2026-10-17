@@ -11,11 +11,12 @@ guarantee are available, and they come from different codebooks.
 
 **Provable.** Tardos (2003) bounds the probability of accusing an innocent
 centre when up to `c` centres collude, but needs
-`m = ceil(100 * c^2 * ln(n/eps))` positions. A paper has far fewer
-([NOTES F1](../../NOTES.md)): the sample paper has 31 positions, while
-`n = 500, c = 3, eps = 1e-6` needs 18,028 bits — 354 papers per centre at 51
-bits per paper. Even a 60-question paper supports `c_max = 0.34`. A single
-paper cannot carry the code.
+`m = 100 * c^2 * k` positions with `k = ceil(ln(n/eps))`. A paper has far
+fewer ([NOTES F1](../../NOTES.md)): the sample paper has 31 positions, while
+`n = 500, c = 3, eps = 1e-6` needs 18,900 bits — 371 papers per centre at 51
+bits per paper. Even a 60-question paper supports `c_max = 0.33`. A single
+paper cannot carry the code. *(Corrected 2026-10-17 from the unrounded
+`ln(n/eps)`, which gave 18,028 bits, 354 papers and 0.34.)*
 
 **Practical.** An exam board issues one paper per centre per sitting, and leaks
 arrive cropped (erasures). That calls for a code that fits in one paper and

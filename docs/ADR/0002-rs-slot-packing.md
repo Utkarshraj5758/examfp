@@ -1,7 +1,7 @@
 # ADR 0002 — Packing paper slots into GF(256) symbols
 
 - **Status:** Accepted
-- **Date:** 2026-10-15 (M5)
+- **Date:** 2026-10-15 (M5); table revised 2026-10-17 (M6)
 - **Related:** [ADR 0001](0001-two-modes.md) (practical mode uses Reed–Solomon)
 
 ## Context
@@ -43,17 +43,25 @@ number (implemented in `examfp/codebook/assign.py`):
    range.
 
 On the sample paper this yields **7 symbols** (n = 7). With 1,000 centres,
-k = 2, so any 2 intact groups recover a centre and up to 5 can be lost:
+k = 2, so any 2 intact groups recover a centre and up to 5 can be lost.
+
+*Revised in M6.* The fairness checker's step rule (ADR 0004) shrank q3.dims and
+q7.cost from 7 to 5 variants. The rules above are unchanged; they now produce
+this packing, still n = 7 and k = 2:
 
 | symbol | slots (alphabet) | capacity | top place value |
 |---|---|---:|---:|
-| 0 | q6.density(7), q7.cost(7), q1.intro/lead/closing(2 each) | 392 | 56 |
-| 1 | q1.speed(7), q3.dims(7), q4.pctval(7) | 343 | 49 |
-| 2 | q2.opts(119), q1.unit(3), q8.closing(2) | 714 | 6 |
-| 3 | eight wording slots of q2–q5 | 256 | 128 |
-| 4 | q5.opts(119), q3.unit(3) | 357 | 3 |
-| 5 | eight wording/unit slots of q6–q8 | 256 | 128 |
-| 6 | q8.opts(119), q6.unit(3) | 357 | 3 |
+| 0 | q1.speed(7), q3.dims(5), q1.intro/lead/closing(2 each) | 280 | 40 |
+| 1 | q2.opts(119), q1.unit(3) | 357 | 3 |
+| 2 | q4.pctval(7), q7.cost(5), q2.lead(2), q2.closing(2), q3.lead(2) | 280 | 40 |
+| 3 | q5.opts(119), q3.unit(3) | 357 | 3 |
+| 4 | q6.density(7), six wording slots of q3–q6 (2 each) | 448 | 64 |
+| 5 | q8.opts(119), q6.unit(3) | 357 | 3 |
+| 6 | eight wording/unit slots of q6–q8 (2 each) | 256 | 128 |
+
+The M5 packing (pre-M6 paper) grouped q6.density with q7.cost, and q1.speed with
+q3.dims and q4.pctval; every group changed membership, so codebooks built before
+M6 are not compatible with the current sample paper.
 
 ## Consequences
 
@@ -65,8 +73,9 @@ k = 2, so any 2 intact groups recover a centre and up to 5 can be lost:
   centre, so a partly visible group still counts as evidence. Question-local
   grouping would favour direct decoding at the cost of fewer symbols; revisit if
   direct decoding enters the trace path.
-- **Wasted capacity.** Each group covers 256 with some slack (59.5 bits of
-  capacity, 56 bits used by 7 symbols), because parity forces whole bytes.
+- **Wasted capacity.** Each group covers 256 with some slack (58.5 bits of
+  capacity since M6, 59.5 before; 56 bits used by 7 symbols), because parity
+  forces whole bytes.
 - `assign`'s public signature is unchanged, but its output now depends on the
   total number of centres (through `k` and the sampled messages). Anything that
   rebuilds one centre's symbols must use the same `n_centres` and `seed`.

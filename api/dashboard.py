@@ -5,7 +5,8 @@ function that turns collected results into one HTML string.  The side-effecting
 :func:`collect` (runs a live trace + robustness sweep) and the file write live
 here per the project convention that side effects stay in ``cli`` / ``api``.
 
-Run it with ``python -m api.dashboard [paper.json] [--encrypt]``. This module
+Run it with ``python -m api.dashboard [paper.json] [--plaintext]``; the demo
+codebook in ``out/`` is sealed (``TRACE_KEK``) unless ``--plaintext``. This module
 depends on the core library, never the other way round.
 """
 
@@ -21,9 +22,15 @@ import typer
 
 from eval.bench import BenchRow, run_bench
 from examfp.attacks import crop, retype, typos
-from examfp.cli import ensure_codebook, render_text, vault_from_env, verdict_lines
+from examfp.cli import (
+    codebook_vault,
+    ensure_demo_codebook,
+    render_text,
+    show_ranking,
+    verdict_lines,
+)
 from examfp.decode.read import read_leak
-from examfp.decode.score import score
+from examfp.decode.score import Outcome, score
 from examfp.models import Paper
 
 Codebook = dict[int, dict[tuple[str, str], int]]
@@ -142,10 +149,25 @@ def _top5_rows(top5: list[tuple[int, float, bool]]) -> str:
     return "".join(out)
 
 
+def _ranking_html(d: DemoTrace) -> str:
+    # Same rule as the CLI: a ranking only beside an IDENTIFIED verdict.
+    if not show_ranking(Outcome(d.outcome)):
+        return '<p class="note">No ranking shown: this outcome names no centre.</p>'
+    return (
+        "<table>\n          <thead><tr><th>#</th><th>centre</th><th>score</th></tr></thead>\n"
+        f"          <tbody>{_top5_rows(d.top5)}</tbody>\n        </table>"
+    )
+
+
 def build_dashboard(data: DashboardData) -> str:
-    """Return a self-contained HTML dashboard (pure function)."""
+    """Return a self-contained HTML dashboard (pure function).
+
+    Guarantees: the live trace shows ranked centres and a margin only for an
+    ``IDENTIFIED`` verdict; any other outcome shows the verdict and no ranking.
+    """
     d = data.demo
     verdict_cls = "good" if d.outcome == "IDENTIFIED" and any(t[2] for t in d.top5) else "warn"
+    margin = f" &middot; margin {d.margin:.2f}" if show_ranking(Outcome(d.outcome)) else ""
     erased = d.positions_total - d.positions_read
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -224,14 +246,11 @@ def build_dashboard(data: DashboardData) -> str:
         <pre class="leak">{html.escape(d.leak_text)}</pre>
       </div>
       <div>
-        <p class="verdict {verdict_cls}">{d.outcome} &middot; margin {d.margin:.2f}</p>
+        <p class="verdict {verdict_cls}">{d.outcome}{margin}</p>
         <p class="note">{"<br>".join(html.escape(line) for line in d.verdict)}</p>
         <p>true centre <b>{d.centre}</b> &middot; positions read <b>{d.positions_read}</b>
            / erased {erased} (of {d.positions_total})</p>
-        <table>
-          <thead><tr><th>#</th><th>centre</th><th>score</th></tr></thead>
-          <tbody>{_top5_rows(d.top5)}</tbody>
-        </table>
+        {_ranking_html(d)}
         <p class="qr">QR-code baseline: no result (mark absent from retyped text)</p>
       </div>
     </div>
@@ -257,14 +276,16 @@ def main(
     out: Annotated[Path, typer.Option(help="Output HTML file.")] = Path("out/dashboard.html"),
     trials: Annotated[int, typer.Option(help="Sweep trials per k.")] = 100,
     seed: Annotated[int, typer.Option(help="RNG seed.")] = 0,
-    encrypt: Annotated[
-        bool, typer.Option("--encrypt/--no-encrypt", help="Seal the codebook (key: TRACE_KEK).")
+    plaintext: Annotated[
+        bool,
+        typer.Option("--plaintext", help="Opt out of encryption: write codebook.json in clear "
+                     "(a secret on disk; prints a warning naming the file)."),
     ] = False,
 ) -> None:
-    """Build a self-contained static HTML dashboard."""
-    vault = vault_from_env(encrypt)
+    """Build a self-contained static HTML dashboard (demo codebook sealed by default)."""
+    vault = codebook_vault(plaintext)
     paper = Paper.model_validate_json(paper_path.read_text(encoding="utf-8"))
-    book = ensure_codebook(paper, Path("out"), vault)
+    book = ensure_demo_codebook(paper, Path("out"), vault)
     write_dashboard(collect(paper, book, seed=seed, n_trials=trials), out)
     typer.echo(f"wrote dashboard to {out}  (open it in a browser)")
 

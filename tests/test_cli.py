@@ -4,18 +4,34 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from examfp.cli import app
+from examfp.decode.score import PAIR_HYPOTHESIS_CORRECT, PAIR_HYPOTHESIS_NAMED
 
 runner = CliRunner()
 SAMPLE = str(Path(__file__).resolve().parents[1] / "data" / "papers" / "sample.json")
 
 
+@pytest.fixture(autouse=True)
+def model_free_fairness(monkeypatch: pytest.MonkeyPatch) -> None:
+    """generate runs the fairness checker; here with a stand-in NLI that entails all.
+
+    The real model runs in tests/fairness/test_acceptance.py (local_model).
+    """
+    from examfp import cli
+    from examfp.fairness.check import FairnessChecker
+    from tests.fairness.support import SpyNli, common
+
+    monkeypatch.setattr(cli, "build_fairness_checker",
+                        lambda _cache: FairnessChecker(SpyNli(), common))
+
+
 def test_generate_writes_files_and_codebook(tmp_path: Path) -> None:
     out = tmp_path / "out"
     result = runner.invoke(
-        app, ["generate", SAMPLE, "--centres", "25", "--out", str(out)]
+        app, ["generate", SAMPLE, "--centres", "25", "--out", str(out), "--plaintext"]
     )
     assert result.exit_code == 0, result.output
     files = sorted(out.glob("centre_*.txt"))
@@ -25,7 +41,7 @@ def test_generate_writes_files_and_codebook(tmp_path: Path) -> None:
 
 def test_two_centres_differ(tmp_path: Path) -> None:
     out = tmp_path / "out"
-    runner.invoke(app, ["generate", SAMPLE, "--centres", "25", "--out", str(out)])
+    runner.invoke(app, ["generate", SAMPLE, "--centres", "25", "--out", str(out), "--plaintext"])
     a = (out / "centre_0.txt").read_text(encoding="utf-8")
     b = (out / "centre_1.txt").read_text(encoding="utf-8")
     assert a != b
@@ -33,7 +49,8 @@ def test_two_centres_differ(tmp_path: Path) -> None:
 
 def test_trace_identifies_centre(tmp_path: Path) -> None:
     out = tmp_path / "out"
-    runner.invoke(app, ["generate", SAMPLE, "--centres", "100", "--out", str(out)])
+    runner.invoke(app, ["generate", SAMPLE, "--centres", "100", "--out", str(out),
+                        "--plaintext"])
     # Build a leak from the tail of a known centre's rendered paper.
     full = (out / "centre_42.txt").read_text(encoding="utf-8").splitlines()
     leak = tmp_path / "leak.txt"
@@ -69,7 +86,7 @@ def test_demo_tells_the_story(tmp_path: Path, monkeypatch) -> None:  # type: ign
     (tmp_path / "data" / "papers" / "sample.json").write_text(
         Path(SAMPLE).read_text(encoding="utf-8"), encoding="utf-8"
     )
-    result = runner.invoke(app, ["demo", "--seed", "12"])
+    result = runner.invoke(app, ["demo", "--seed", "12"], env={"TRACE_KEK": KEY})
     assert result.exit_code == 0, result.output
     assert "verdict:" in result.output
     assert "positions read:" in result.output
@@ -101,10 +118,10 @@ def _no_plaintext_codebook_anywhere(root: Path) -> None:
             assert b'"q1::intro"' not in path.read_bytes(), f"codebook content in {path}"
 
 
-def test_generate_encrypt_never_writes_plaintext_codebook(tmp_path: Path) -> None:
+def test_generate_seals_the_codebook_by_default(tmp_path: Path) -> None:
     out = tmp_path / "out"
     result = runner.invoke(
-        app, ["generate", SAMPLE, "--centres", "25", "--out", str(out), "--encrypt"],
+        app, ["generate", SAMPLE, "--centres", "25", "--out", str(out)],
         env={"TRACE_KEK": KEY},
     )
     assert result.exit_code == 0, result.output
@@ -113,21 +130,34 @@ def test_generate_encrypt_never_writes_plaintext_codebook(tmp_path: Path) -> Non
     _no_plaintext_codebook_anywhere(tmp_path)
 
 
-def test_generate_encrypt_without_key_fails_before_writing(tmp_path: Path) -> None:
+def test_generate_without_a_key_refuses_and_names_the_opt_out(tmp_path: Path) -> None:
     out = tmp_path / "out"
     result = runner.invoke(
-        app, ["generate", SAMPLE, "--centres", "5", "--out", str(out), "--encrypt"],
+        app, ["generate", SAMPLE, "--centres", "5", "--out", str(out)],
         env={"TRACE_KEK": None},
     )
     assert result.exit_code != 0
-    assert "TRACE_KEK" in result.output
+    assert "TRACE_KEK" in result.output and "--plaintext" in result.output
     assert not out.exists() or not any(out.iterdir())  # nothing written
+
+
+def test_generate_plaintext_warns_and_names_the_file_written(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    result = runner.invoke(
+        app, ["generate", SAMPLE, "--centres", "5", "--out", str(out), "--plaintext"],
+        env={"TRACE_KEK": None},
+    )
+    assert result.exit_code == 0, result.output
+    written = out / "codebook.json"
+    assert written.exists() and not (out / "codebook.json.enc").exists()
+    warning = next(line for line in result.output.splitlines() if "warning" in line)
+    assert "PLAINTEXT" in warning and str(written) in warning
 
 
 def test_trace_decrypts_encrypted_codebook_in_memory(tmp_path: Path) -> None:
     out = tmp_path / "out"
     runner.invoke(
-        app, ["generate", SAMPLE, "--centres", "100", "--out", str(out), "--encrypt"],
+        app, ["generate", SAMPLE, "--centres", "100", "--out", str(out)],
         env={"TRACE_KEK": KEY},
     )
     leak = tmp_path / "leak.txt"
@@ -148,7 +178,7 @@ def test_trace_decrypts_encrypted_codebook_in_memory(tmp_path: Path) -> None:
 def test_trace_with_wrong_key_fails_cleanly(tmp_path: Path) -> None:
     out = tmp_path / "out"
     runner.invoke(
-        app, ["generate", SAMPLE, "--centres", "10", "--out", str(out), "--encrypt"],
+        app, ["generate", SAMPLE, "--centres", "10", "--out", str(out)],
         env={"TRACE_KEK": KEY},
     )
     leak = tmp_path / "leak.txt"
@@ -166,7 +196,8 @@ def test_trace_with_wrong_key_fails_cleanly(tmp_path: Path) -> None:
 
 def test_leak_forges_the_centre_of_the_generated_codebook(tmp_path: Path) -> None:
     out = tmp_path / "out"
-    runner.invoke(app, ["generate", SAMPLE, "--centres", "100", "--out", str(out)])
+    runner.invoke(app, ["generate", SAMPLE, "--centres", "100", "--out", str(out),
+                        "--plaintext"])
     leak = tmp_path / "leak.txt"
     result = runner.invoke(
         app,
@@ -190,7 +221,7 @@ def test_demo_refuses_a_stale_codebook(tmp_path: Path, monkeypatch) -> None:  # 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "out").mkdir()
     save_codebook(mixed_radix_assign(paper, 1000), tmp_path / "out" / "codebook.json")
-    result = runner.invoke(app, ["demo", SAMPLE])
+    result = runner.invoke(app, ["demo", SAMPLE, "--plaintext"])
     assert result.exit_code != 0
     assert "current codebook scheme" in result.output
     assert "Traceback" not in result.output
@@ -210,7 +241,8 @@ def _collusion_trace(
 
     paper = Paper.model_validate_json(Path(SAMPLE).read_text(encoding="utf-8"))
     out = tmp_path / "out"
-    runner.invoke(app, ["generate", SAMPLE, "--centres", "1000", "--out", str(out)])
+    runner.invoke(app, ["generate", SAMPLE, "--centres", "1000", "--out", str(out),
+                        "--plaintext"])
     book = assign(paper, 1000, seed=0)
     leak = tmp_path / "leak.txt"
     for seed in range(30):
@@ -248,7 +280,7 @@ def test_hypotheses_flag_prints_the_pair_with_its_measured_accuracy(tmp_path: Pa
         tmp_path, 2, "is the only pair", extra=("--hypotheses",)
     )
     assert f"{{{min(pair)}, {max(pair)}}}" in output
-    assert "98 of 109" in output
+    assert f"{PAIR_HYPOTHESIS_CORRECT} of {PAIR_HYPOTHESIS_NAMED}" in output
     assert "3 or more centres" in output
     assert "cannot distinguish a two-centre leak from a larger one" in output
     assert "not an accusation" in output
@@ -261,7 +293,7 @@ def test_hypothesis_lines_wording() -> None:
     none = "\n".join(hypothesis_lines(None))
     assert "nobody is named" in none and "{" not in none
     named = "\n".join(hypothesis_lines((3, 17)))
-    assert "{3, 17}" in named and "98 of 109" in named
+    assert "{3, 17}" in named and f"{PAIR_HYPOTHESIS_CORRECT} of {PAIR_HYPOTHESIS_NAMED}" in named
     assert "cannot distinguish a two-centre leak from a larger one" in named
 
 
@@ -274,7 +306,8 @@ def test_trace_never_names_three_or_more(tmp_path: Path) -> None:
 
 def test_trace_shows_gate_evidence(tmp_path: Path) -> None:
     out = tmp_path / "out"
-    runner.invoke(app, ["generate", SAMPLE, "--centres", "100", "--out", str(out)])
+    runner.invoke(app, ["generate", SAMPLE, "--centres", "100", "--out", str(out),
+                        "--plaintext"])
     leak = tmp_path / "leak.txt"
     leak.write_text((out / "centre_7.txt").read_text(encoding="utf-8"), encoding="utf-8")
     result = runner.invoke(
@@ -298,3 +331,177 @@ def test_multi_source_verdict_lists_causes_and_asserts_no_collusion() -> None:
     assert "outside this codebook" in text  # cause 3
     assert "most likely" not in text  # it must not assert collusion
     assert "No centre is named." in text
+
+
+# --- display: a ranking only where the verdict already names a centre ---------------------------
+DISTINCT = 900_000  # centre ids 900000-900999: no count, symbol or score can mimic them
+
+
+def _distinct_id_codebook(tmp_path: Path) -> tuple[Path, dict[int, dict[tuple[str, str], int]]]:
+    from examfp.codebook.assign import assign, dumps_codebook
+    from examfp.models import Paper
+
+    paper = Paper.model_validate_json(Path(SAMPLE).read_text(encoding="utf-8"))
+    book = {DISTINCT + c: symbols for c, symbols in assign(paper, 1000, seed=0).items()}
+    path = tmp_path / "codebook.json"
+    path.write_text(dumps_codebook(book), encoding="utf-8")
+    return path, book
+
+
+def _leak_text(kind: str, book: dict[int, dict[tuple[str, str], int]]) -> str:
+    import random
+
+    from examfp.attacks import collude
+    from examfp.cli import render_text
+    from examfp.models import Paper
+
+    paper = Paper.model_validate_json(Path(SAMPLE).read_text(encoding="utf-8"))
+    if kind == "MULTI_SOURCE_SUSPECTED":  # full paper mixed from two centres
+        rng = random.Random(0)
+        return render_text(paper, collude([book[DISTINCT + 1], book[DISTINCT + 2]], rng))
+    if kind == "INSUFFICIENT":  # one question: too few slots to name anyone
+        return "\n".join(render_text(paper, book[DISTINCT + 1]).splitlines()[3:5])
+    return "Lorem ipsum dolor sit amet, consectetur adipiscing elit."  # NO_MATCH
+
+
+def _trace_output(tmp_path: Path, kind: str, *extra: str) -> tuple[str, list[int]]:
+    codebook, book = _distinct_id_codebook(tmp_path)
+    leak = tmp_path / "leak.txt"
+    leak.write_text(_leak_text(kind, book), encoding="utf-8")
+    result = runner.invoke(
+        app, ["trace", str(leak), "--codebook", str(codebook), "--paper", SAMPLE, *extra]
+    )
+    assert result.exit_code == 0, result.output
+    assert f"outcome: {kind}" in result.output
+    return result.output, [c for c in book if str(c) in result.output]
+
+
+@pytest.mark.parametrize("kind", ["MULTI_SOURCE_SUSPECTED", "NO_MATCH", "INSUFFICIENT"])
+def test_default_output_names_no_centre_unless_identified(tmp_path: Path, kind: str) -> None:
+    output, shown = _trace_output(tmp_path, kind)
+    assert shown == [], f"centre identifiers in the default {kind} output: {shown[:5]}"
+    assert "top 5" not in output and "margin" not in output  # nothing that looks like a ranking
+
+
+def test_hypotheses_flag_reveals_the_ranking_labelled_as_not_a_verdict(tmp_path: Path) -> None:
+    output, shown = _trace_output(tmp_path, "MULTI_SOURCE_SUSPECTED", "--hypotheses")
+    assert "ranked scores (--hypotheses) - not a verdict:" in output
+    assert shown  # the ranking is there, on request
+    assert "No centre is named." in output  # the verdict itself is unchanged
+
+
+def test_ranking_is_shown_only_with_an_identified_verdict_or_on_request() -> None:
+    from examfp.cli import show_ranking
+    from examfp.decode.score import Outcome
+
+    for outcome in Outcome:
+        assert show_ranking(outcome) is (outcome is Outcome.IDENTIFIED)
+        assert show_ranking(outcome, hypotheses=True)
+
+
+# --- generate runs the fairness checker before writing anything ----------------------------------
+def _unfair_paper(tmp_path: Path) -> Path:
+    """The sample paper with one extra q3 variant that needs fewer carries (ADR 0004)."""
+    import json
+
+    data = json.loads(Path(SAMPLE).read_text(encoding="utf-8"))
+    q3 = next(q for q in data["questions"] if q["id"] == "q3")
+    dims = next(s for s in q3["slots"] if s["name"] == "dims")
+    dims["variants"].append({"values": ["20", "72"]})
+    path = tmp_path / "unfair.json"
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+def test_generate_reports_the_fairness_check(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    result = runner.invoke(app, ["generate", SAMPLE, "--centres", "5", "--out", str(out),
+                                 "--plaintext"])
+    assert result.exit_code == 0, result.output
+    assert "fairness: all 414 variants pass" in result.output
+
+
+def test_generate_refuses_a_paper_that_fails_fairness(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    result = runner.invoke(app, ["generate", str(_unfair_paper(tmp_path)), "--centres", "5",
+                                 "--out", str(out)], env={"TRACE_KEK": KEY})
+    assert result.exit_code != 0
+    assert "q3.dims" in result.output and "'20', '72'" in result.output
+    assert "steps" in result.output and "--skip-fairness" in result.output
+    assert not out.exists() or not any(out.iterdir())  # nothing written
+
+
+def test_generate_fails_closed_when_the_checker_cannot_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from examfp import cli
+
+    def missing(_cache: Path) -> object:
+        raise FileNotFoundError("NLI model files missing")
+
+    monkeypatch.setattr(cli, "build_fairness_checker", missing)
+    out = tmp_path / "out"
+    result = runner.invoke(app, ["generate", SAMPLE, "--centres", "5", "--out", str(out)],
+                           env={"TRACE_KEK": KEY})
+    assert result.exit_code != 0
+    assert "NLI model files missing" in result.output and "--skip-fairness" in result.output
+    assert not out.exists() or not any(out.iterdir())
+
+
+def test_skip_fairness_names_every_skipped_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from examfp import cli
+
+    def never(_cache: Path) -> object:
+        raise AssertionError("the checker ran despite --skip-fairness")
+
+    monkeypatch.setattr(cli, "build_fairness_checker", never)
+    out = tmp_path / "out"
+    result = runner.invoke(app, ["generate", str(_unfair_paper(tmp_path)), "--centres", "5",
+                                 "--out", str(out), "--skip-fairness"], env={"TRACE_KEK": KEY})
+    assert result.exit_code == 0, result.output
+    warning = result.output[result.output.index("fairness checks skipped"):]
+    for name in ("answer", "digits", "trivial", "steps", "separation", "ask", "numbers", "nli",
+                 "instruction", "units", "readability", "options"):
+        assert name in warning, name
+    assert "NOT machine-checked" in warning
+    assert (out / "codebook.json.enc").exists()
+
+
+# --- demo seals its codebook by default, like generate ----------------------------------------
+def _demo_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+
+
+def test_demo_seals_its_codebook_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+                                            ) -> None:
+    _demo_dir(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["demo", SAMPLE, "--seed", "3"], env={"TRACE_KEK": KEY})
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "out" / "codebook.json.enc").exists()
+    assert not (tmp_path / "out" / "codebook.json").exists()
+
+
+def test_demo_without_a_key_refuses_and_names_the_opt_out(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _demo_dir(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["demo", SAMPLE], env={"TRACE_KEK": None})
+    assert result.exit_code != 0
+    assert "TRACE_KEK" in result.output and "--plaintext" in result.output
+    assert not (tmp_path / "out").exists()  # nothing written
+
+
+def test_demo_plaintext_warns_and_names_the_file(tmp_path: Path,
+                                                 monkeypatch: pytest.MonkeyPatch) -> None:
+    _demo_dir(tmp_path, monkeypatch)
+    first = runner.invoke(app, ["demo", SAMPLE, "--plaintext"], env={"TRACE_KEK": None})
+    assert first.exit_code == 0, first.output
+    path = Path("out") / "codebook.json"
+    assert (tmp_path / path).exists()
+    warning = next(line for line in first.output.splitlines() if "warning" in line)
+    assert "PLAINTEXT" in warning and "wrote" in warning and str(path) in warning
+    again = runner.invoke(app, ["demo", SAMPLE, "--plaintext"], env={"TRACE_KEK": None})
+    warning = next(line for line in again.output.splitlines() if "warning" in line)
+    assert "reused" in warning and str(path) in warning

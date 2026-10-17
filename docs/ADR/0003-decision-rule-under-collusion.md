@@ -57,9 +57,16 @@ assumption, same tolerance). It runs only under `trace --hypotheses`. It reports
 a pair only when exactly one pair covers the reads; sets of three or more are
 never reported, and an ambiguous cover or an exhausted node budget reports
 nobody. Any pair is printed together with its measured accuracy (98 correct of
-109 on the M5.5 bench, every wrong one from a leak involving 3 or more centres).
+109 on the M5.5 bench, 117 of 126 after M6 revised the sample paper; every wrong
+one from a leak involving 3 or more centres).
 The output also states that the system cannot distinguish a two-centre leak from
 a larger one.
+
+**Display follows the verdict.** A ranked list of centres, and the margin, is
+shown only beside an `IDENTIFIED` verdict, where the named centre already is the
+verdict. For any other outcome it appears only under `--hypotheses`, labelled
+"not a verdict". Otherwise rank 1 would do at the display layer what the gate
+forbids in the rule (`show_ranking()`, used by the CLI and the dashboard).
 
 *History.* The first M5.5 version, `COLLUSION_SUSPECTED`, named any unique
 minimal set of up to 5 centres. The first review restricted the named set to a
@@ -75,8 +82,18 @@ opt-in hypothesis above, for the reason given under Consequences.
 | tolerance | 0 (≤ 31 reads) | smallest `t` with `P(Bin(reads, rate) > t) <= budget` |
 | `MIN_READ_SLOTS` | 11 | gate without a floor: innocents named at up to 10 reads, never from 11 up (0 in 5,804; 95% UB 0.052%) |
 
-**Recalibration procedure** (required whenever the reader changes; OCR in M7
-and paraphrase in M8–M10 will raise the misread rate):
+**Re-measured 2026-10-17 (M6), after the fairness fixes changed the sample
+paper:** 0 misreads in 104,098 read slots (same bound, tolerance 0); innocents
+again identified at up to 10 reads and never from 11 up on seeds 1 and 7 (0 in
+5,812 leaks), so `MIN_READ_SLOTS` stays 11; 0 innocents identified for coalitions
+of 1–5. Only the pair accuracy moved (117 of 126). The first M6 draft of the
+paper used a wording variant that is nearly a prefix of its reference ("Show
+your work." beside "Show your working."). It produced 6 misreads, which would
+have raised the tolerance to 1 and the floor to 16, and cut 3-question leaks to
+0% and 4-question leaks to 47.5%. The paper was changed instead (NOTES.md, M6).
+
+**Recalibration procedure** (required whenever the reader or the paper changes;
+OCR in M7 and paraphrase in M8–M10 will raise the misread rate):
 
 1. Run `python -m eval.bench`. It reports misreads against the true source on
    6,000 single-source leaks and the 95% upper bound.
@@ -118,11 +135,15 @@ and paraphrase in M8–M10 will raise the misread rate):
 - The floor counts slots, but slots carry unequal information (a 2-variant
   wording slot vs a 119-variant option order). A bits floor was measured but not
   adopted: its threshold moved between seeds (16.29 vs 18.59 bits), and at 18.59
-  it would lift 3-question leaks from about 80% to about 91%. M11 revisits it
-  with more trials.
+  it would lift 3-question leaks from about 80% to about 91%. *On the M6 paper*
+  seeds 1 and 7 give 17.79 and 16.29 bits, and at 17.79 3-question leaks would go
+  from 82–84% to 98–99%. M11 revisits it with more trials.
 - **2-question leaks are a capacity bound.** The most informative question pair
-  carries 17.79 bits, but excluding the observed false identifications needs at
-  least 18.59. More data can only raise that requirement. So no entropy-based
+  carries 17.79 bits, but excluding the observed false identifications needed at
+  least 18.59 on the pre-M6 paper. On the M6 paper seed 1 produced a false
+  identification at exactly 17.79 bits, so the requirement is at least 17.79, and
+  a bits floor identifies only strictly above it. More data can only raise that
+  requirement. So no entropy-based
   floor can recover 2-question leaks: the information needed to rule out a
   hybrid is not in the observation (sample paper, 1,000 centres).
 

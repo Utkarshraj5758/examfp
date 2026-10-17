@@ -40,6 +40,8 @@ jobs:
         shell: powershell
         run: .\tasks.ps1 lint
 
+      # local_model tests need the pinned NLI model and the fairness extra; they run
+      # locally via .\tasks.ps1 fairness (PLAN.md M6, decision 6; M14 caches the model).
       - name: Test
         shell: powershell
-        run: .\tasks.ps1 test
+        run: .\tasks.ps1 test -m "not local_model"

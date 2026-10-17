@@ -21,8 +21,9 @@ matrix). The score ranks; it does not decide. The decision runs in this order:
 
 An opt-in investigative aid, :func:`unique_pair_hypothesis`, finds the one pair
 of centres that jointly explains the reads, if exactly one does. It is never
-part of a verdict: in M5.5 every wrong pair (11 of 11) came from a leak of 3-5
-centres, and the system cannot tell a two-centre leak from a larger one.
+part of a verdict: every wrong pair measured so far (11 of 11 in M5.5, 9 of 9
+after M6) came from a leak of 3 or more centres, and the system cannot tell a
+two-centre leak from a larger one.
 
 Why the gate exists: the slot score measures a different distance from the one
 Reed-Solomon protects (symbols). Under collusion, a hybrid leak can sit nearer
@@ -53,6 +54,7 @@ MARGIN_THRESHOLD = 0.5
 # --- calibrated parameters (procedure: NOTES.md, M5.5; ADR 0003) -----------------------------
 # Upper 95% bound on the reader's per-slot misread rate. Measured 2026-10-16:
 # 0 misreads in 104,026 read slots (fuzzy reader; crops 1-8, retype, 3% typos).
+# Re-measured 2026-10-17 on the M6 sample paper: 0 in 104,098, same bound.
 # Re-measure whenever the reader changes (OCR in M7, paraphrase in M8-M10):
 # `python -m eval.bench` prints it; then re-check the floor and collusion rows.
 MISREAD_RATE = 2.88e-5
@@ -62,20 +64,23 @@ FALSE_REJECTION_BUDGET = 1e-3
 # Fewest read slots for any verdict naming centres. Measured 2026-10-16 with the
 # gate at the tolerance above and no floor: innocents were identified at up to 10
 # slots read (seeds 1 and 7) and never from 11 up - 0 in 5,804 leaks, 95% upper
-# bound 0.052%. Sample paper, 1,000 centres; re-measure for other operating points.
+# bound 0.052%. Re-measured 2026-10-17 on the M6 sample paper: again up to 10 and
+# never from 11 up, 0 in 5,812 leaks (95% upper bound 0.052%). Sample paper,
+# 1,000 centres; re-measure for other operating points.
 MIN_READ_SLOTS = 11
 # The opt-in hypothesis considers pairs only, never larger sets. Budget for the
 # pair search; an exhausted search names nobody.
 NAMED_SET_SIZE = 2
 COVER_NODE_BUDGET = 20_000
 # Measured accuracy of unique_pair_hypothesis, printed beside every pair it names.
-# M5.5 collusion bench (eval/bench.py run_collusion_bench, seed 2: minority
-# strategy, 6 questions, retype, 3% typos, 200 leaks per coalition size 1-5):
-# 109 pairs named, 98 correct (all from 2-centre leaks), 11 wrong (all from leaks
-# of 3-5 centres). Guarded by tests/eval/test_bench.py; re-measure when the
-# reader, the codebook or the decision rule changes.
-PAIR_HYPOTHESIS_CORRECT = 98
-PAIR_HYPOTHESIS_NAMED = 109
+# Collusion bench (eval/bench.py run_collusion_bench, seed 2: minority strategy,
+# 6 questions, retype, 3% typos, 200 leaks per coalition size 1-5), re-measured
+# 2026-10-17 on the M6 sample paper: 126 pairs named, 117 correct (116 the exact
+# 2-centre coalition, 1 inside a 3-centre one), 9 wrong (all from leaks of 3-4
+# centres). M5.5 paper: 98 of 109. Guarded by tests/eval/test_bench.py;
+# re-measure when the paper, the reader, the codebook or the decision rule changes.
+PAIR_HYPOTHESIS_CORRECT = 117
+PAIR_HYPOTHESIS_NAMED = 126
 
 
 class Outcome(StrEnum):

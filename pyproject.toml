@@ -13,6 +13,7 @@ dependencies = [
     "rapidfuzz==3.14.5",
     "numpy==2.4.6",
     "cryptography==50.0.2",  # AES-GCM envelope encryption (codebook/crypto.py)
+    "sympy==1.14.0",  # exact answer equivalence (fairness/answers.py)
 ]
 
 [project.optional-dependencies]
@@ -24,6 +25,17 @@ ml = [
     "torch==2.14.1",
     "transformers==5.19.0",
     "pyyaml==6.0.3",
+]
+# Fairness checker's model-backed checks (examfp/fairness: nli.py, readability.py).
+# Separate from `ml`: the checker needs inference only. Imported lazily, so the
+# core library and CI (`.[dev]`) work without it. The NLI model itself is pinned
+# in examfp/fairness/pins.py and fetched by `.\tasks.ps1 fetch-models`.
+fairness = [
+    "torch==2.14.1",
+    "transformers==5.19.0",
+    "tokenizers==0.23.3",
+    "sentencepiece==0.2.2",
+    "wordfreq==3.1.1",
 ]
 # HTTP service (service/). Worker framework, JWT and crypto libraries are
 # chosen in their own milestones -- see NOTES.md, "Deferred dependency choices".
@@ -59,6 +71,9 @@ include = ["examfp", "examfp.*", "ml", "ml.*", "service", "service.*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "local_model: needs the pinned NLI model and the fairness extra; CI deselects it (M6)",
+]
 
 [tool.ruff]
 target-version = "py311"
@@ -79,5 +94,14 @@ strict = true
 # than the 3.11 target; do not parse them.
 [[tool.mypy.overrides]]
 module = ["numpy.*"]
+follow_imports = "skip"
+follow_imports_for_stubs = true
+
+# SymPy ships no type information. torch, transformers, wordfreq and
+# huggingface_hub are optional (the `fairness` extra), imported lazily and absent
+# in CI; treat them as untyped everywhere so local and CI runs agree.
+[[tool.mypy.overrides]]
+module = ["sympy.*", "torch.*", "transformers.*", "wordfreq.*", "huggingface_hub.*"]
+ignore_missing_imports = true
 follow_imports = "skip"
 follow_imports_for_stubs = true

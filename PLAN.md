@@ -14,10 +14,15 @@ acceptance test passes, `.\tasks.ps1 lint` is clean, and PLAN.md is ticked.
 - [x] **M2** Tardos code, faithful to Tardos (2003), multi-paper layering
 - [x] **M3** Crude mixed-radix `assign`, fuzzy decoder, attacks, CLI, benchmark
 
-Measured baseline to beat: **91% identification at 6 leaked questions, 100% at
-7+, 0% false identification across 1,600 single-source trials, 37 ms to score
-1,000 centres.** *Correction (M5.5): those trials contained no collusion; under
-collusion the same rule named innocent centres in up to 55% of leaks. See M5.5.*
+*Historical (M3, pre-M6 paper):* measured baseline to beat: **91%
+identification at 6 leaked questions, 100% at 7+, 0% false identification
+across 1,600 single-source trials, 37 ms to score 1,000 centres.** *Correction
+(M5.5): those trials contained no collusion; under collusion the same rule named
+innocent centres in up to 55% of leaks. See M5.5.* *Stale since M6:* on the M6
+paper, the same mixed-radix baseline identifies 87.0% at 6 questions (seed 0,
+200 trials), and `score()` takes about 3.5 ms for 1,000 centres. The paper is
+about to be rebuilt on CBSE structure (NOTES.md, M6), after which every number is
+re-measured.
 
 ---
 
@@ -116,34 +121,148 @@ NOTES.md, M5.5.
 
 ---
 
-### [ ] M6 — Fairness checker
+### [~] M6 — Fairness checker
 
 The claim the whole project rests on, made machine-checkable.
 
-**Build:** `fairness/bands.py` (already partly in models — keep it there, wrap
-it), `fairness/answers.py` using SymPy with exact `Rational`, `fairness/nli.py`
-using `cross-encoder/nli-deberta-v3-small` requiring bidirectional entailment,
-`fairness/readability.py` comparing word count, syllable count and rare-word
-count within tolerance. One `FairnessReport` per variant with per-check
-pass/fail and reason.
+**Build:** `examfp/fairness/`: `answers.py` (SymPy, exact `Rational`),
+`bands.py` (wraps the existing band validator in `models.py`, which stays
+frozen, and adds the step rule), `nli.py` (`cross-encoder/nli-deberta-v3-small`,
+bidirectional entailment above a configurable threshold, loaded lazily and
+cached), `readability.py` (word, syllable and rare-word counts within
+tolerance). Each check returns `(passed, reason)`. One `FairnessReport` per
+variant with per-check pass/fail and reason.
 
-**Acceptance:** on a labelled fixture set of 40 variants (20 fair, 20
-deliberately broken — wrong answer, meaning drift, difficulty jump, rare word),
-all 20 broken are rejected with at most 2 false rejections. NLI model loads
-lazily and scores a pair in under 300 ms on CPU.
+**Owner decisions (2026-10-17, planning session) — binding:**
+
+1. **Three channels, three tests, never mixed; the tests assert the separation.**
+   - *Wording* (wording and unit-form slots): numbers must be identical to the
+     reference, then NLI entailment both ways, then readability. Never SymPy.
+   - *Numeric* (banded groups): SymPy answer equivalence. **Never passed to the
+     NLI model**, which would reject valid variants as non-equivalent statements.
+   - *Difficulty band*: arithmetic rules only (digit counts, trivial operands,
+     step count).
+   - Option orders: structural check (same options, same correct text).
+   - A spy NLI backend must prove that no numeric variant, and no pair whose
+     numbers differ, ever reaches the model.
+2. **Step count, recorded in a new ADR 0004.** Use the canonical written method:
+   partial products for multiplication; for a percentage, one step when it is
+   a clean fraction of 100, two otherwise. The ADR states the definition, why
+   it was chosen, and the limitation that students may solve by other methods.
+   It is expected to reject the sample paper's q3 (32 × 45), q7 (45 × 32) and
+   q4 (20%, 25% against the reference 15%) variants; that is correct behaviour.
+   **Open, ask the owner before adopting:**
+   - Division has no rule yet (bands q1, q6). Proposal: one step per quotient
+     digit in short division, which is constant when the answer is fixed.
+   - Read "clean fraction" as 100/p being an integer (20%, 25%: one step; 40%
+     = 2/5: two steps). Confirm that reading.
+   - `add` and `subtract` bands have no rule either; they must fail closed.
+3. **Fix `data/papers/sample.json` so it passes every check.** Then re-run
+   `.\tasks.ps1 bench` and report which published numbers moved.
+   - Do not assume the durable-bit percentage or the k-sweep are unchanged.
+     Alphabets shrink, which changes the bit counts and possibly the RS
+     packing (ADR 0002).
+   - Check the M5.5 calibration too. The guard test pins the pair accuracy at
+     98/109, and the read floor and bits floor may move. Follow ADR 0003's
+     recalibration procedure if they do.
+   - For q4, a fix can keep 7 variants: 12% of 500 and 48% of 125 are
+     two-step, like 15%.
+4. **NLI stays strict, with no exemptions for context slots.** Replace the
+   place-name intro swaps (q1 Nashik / Pune highway, q6 Bengaluru lab / school
+   lab, q7 Delhi bookshop / Chennai store) with same-place paraphrases, two per
+   slot.
+   - F14 stays labelled fair. If the model rejects it, that is a false
+     rejection against the budget of two.
+   - **Fixture labels are never revised to match model output.** Add this
+     principle to CLAUDE.md, under ML discipline.
+5. **Dependencies.** Downloads were approved in the planning session;
+   reconfirm at the session kickoff.
+   - SymPy 1.14.0 becomes a base dependency.
+   - A new `fairness` extra, separate from `ml`: torch 2.14.1, transformers
+     5.19.0, tokenizers 0.23.3, sentencepiece 0.2.2 and wordfreq 3.1.1
+     (rare words).
+   - The model `cross-encoder/nli-deberta-v3-small` is pinned at revision
+     `fa2804872c3b4bd748f38c0185cc85775361e735`. Fetch only
+     `model.safetensors` and the tokenizer and config files, not the ONNX
+     copies. At runtime, load local files only.
+6. **The acceptance test is marked and local-only.** CI skips it; the
+   fake-model separation tests run in CI. Record its result in NOTES.md with
+   the model revision and date, so drift shows up in the diff. M14 caches the
+   model in CI.
+7. **Model reliability, M9's baseline.**
+   - Build a wording set of about 60 pairs outside the 40-entry fixture: half
+     equivalent, half not. The non-equivalent half covers a changed quantity
+     asked for, changed units, an added or removed constraint, and a reversed
+     relationship.
+   - Report the NLI model's accuracy on it with a confidence interval in
+     NOTES.md.
+   - Also report its agreement with the hand labels on the fixture's wording
+     subset.
+
+**Fixture (approved):** `tests/fixtures/variants.json`, 40 entries: 29 fair,
+11 unfair (2 `wrong_answer`, 2 `extra_step`, 2 `trivial_operand`, 2
+`digit_jump`, 3 `changes_question`). Each unfair entry fails exactly the rule on
+its label. After the sample-paper fix, update the `approved` flags.
+
+**Acceptance:** at most 2 false rejections on the 29 fair entries and zero false
+acceptances on the 11 unfair. The NLI model loads lazily and scores a pair in
+under 300 ms on CPU.
 
 **Prompt:**
-> Read CLAUDE.md. Build M6, the fairness checker, in examfp/fairness/. Four pure
-> check functions each returning (passed: bool, reason: str): answer_equivalent
-> using SymPy exact Rationals; meaning_equivalent using cross-encoder/nli-deberta-v3-small
-> requiring entailment in both directions above a configurable threshold, model
-> loaded lazily and cached; readability_similar on word count, syllable count and
-> rare-word count within tolerance; band_satisfied wrapping the existing
-> difficulty-band validator. Combine into FairnessReport. First create
-> tests/fixtures/variants.json with 20 fair and 20 deliberately broken variants
-> covering wrong answer, meaning drift, difficulty jump and rare vocabulary, and
-> show me that file before implementing. Acceptance: all 20 broken rejected, at
-> most 2 false rejections, NLI under 300 ms per pair on CPU.
+> Read CLAUDE.md and PLAN.md's M6 section, including the owner decisions. Build
+> M6, the fairness checker. Downloads are approved: the packages listed in M6
+> plus cross-encoder/nli-deberta-v3-small at revision fa28048. Before adopting
+> the step rule, ask the owner the open questions in decision 2.
+
+**Status (2026-10-17, branch `m6-fairness`): built; acceptance not met, recorded
+on the owner's decision.** Everything in the Build list exists, plus a unit-form
+channel (`units.py`).
+
+- *Decision 2 answered:* the step rule (ADR 0004) covers division (dividend
+  digits, non-zero remainders), addition and subtraction (columns, carries or
+  borrows), and percentages (one step when 100 / p is whole). Every carry counts,
+  and the multiplier is the second operand in fill order.
+- *Owner rulings after the first run:* unit forms are judged by a unit table,
+  not NLI (the tokenizer reads ² and ³ as `[UNK]`); the model and threshold 0.5
+  stay; record the result and fix the paper.
+- *Acceptance:* 0 false acceptances on the 11 unfair entries, each failing
+  exactly its labelled rule. **3 false rejections** on the 29 fair (F11, F13, F14,
+  all NLI) **against a budget of 2.** Lazy load works, at 76 ms per pair; the
+  sample paper passes every check. The budget test is a strict xfail; the
+  rejection set is pinned.
+- *Decision 3:* sample.json is fixed (q3 and q7 now 5 variants, q4 7) and
+  re-benched. The ADR 0003 procedure leaves the calibration unchanged (0
+  misreads; floor 11; 0 innocents for coalitions of 1–5). The pair accuracy
+  moved, 98/109 → 117/126. 3-question leaks: 82% → 80%.
+- *Decision 7:* held-out 55/60 (95% CI 81.6–97.2%), with 2 false acceptances
+  (changed quantity); fixture agreement 17/20.
+
+- *Stronger model, tried (2026-10-17):* `cross-encoder/nli-deberta-v3-base@6c749ce`,
+  owner-approved and pinned beside the small model, scored 54/60 on the held-out
+  set (2 false acceptances, 4 false rejections) against small's 55/60. Under the
+  rule fixed before scoring, small stays. The one fixture run, with small, is
+  unchanged: 3 false rejections.
+- *Three structural rules, closing attempt (2026-10-17; ADR 0004 parts 2–4):*
+  - Variant separation: no variant contains another. The measured edit-distance
+    minimum, 11, is recorded and not adopted, on the owner's decision.
+  - The ask is a radical: no NLI-judged wording slot may sit in the ask.
+  - Instruction phrasing is judged by a table built from the paper's vocabulary.
+  - **Result: not met. 9 false rejections** (F01, F03, F04, F07, F09, F11–F14:
+    fair phrasings the paper does not use, failing closed at the table), 0 false
+    acceptances. NLI on open question prose alone: 55/59, unchanged in
+    substance. The table added coverage, not model quality. Stopped and
+    reported without tuning, as instructed.
+
+- *CBSE finding (2026-10-17):* real CBSE board papers have no per-question
+  working instruction and use four-option MCQs with section-level choice
+  wording. 8 of the sample paper's 31 positions, and its five-option MCQs, are
+  invented carriers. **Next session rebuilds the paper on CBSE structure and
+  re-measures every number** (NOTES.md, M6).
+
+Numbers, findings and open items are in NOTES.md, M6. **To close M6:** meet
+the false-rejection budget without tuning on the fixture. Every remaining
+rejection is a table miss, so this is an owner decision on the instruction
+table's coverage (from a source other than the fixture) or on the budget.
 
 ---
 
@@ -153,7 +272,7 @@ lazily and scores a pair in under 300 ms on CPU.
 per-slot misread rate and recalibrate the decision rule against it —
 `MISREAD_RATE`, hence the gate tolerance, then `MIN_READ_SLOTS` — using the
 procedure in ADR 0003. *Why first:* the gate's tolerance is 0, calibrated for the
-fuzzy text reader (0 misreads in 104,026 reads). At tolerance 0, a 1% per-slot
+fuzzy text reader (0 misreads in 104,026 reads; 104,098 after M6). At tolerance 0, a 1% per-slot
 misread rate makes 1 − 0.99¹¹ ≈ 10% of genuine 11-slot leaks fail the gate, and
 those leaks would come back `MULTI_SOURCE_SUSPECTED` or `INSUFFICIENT`. That
 would look like an OCR failure when it is really a gate calibrated for the wrong
@@ -224,8 +343,10 @@ checkpoint export to `models/<version>/`.
 **Acceptance:** on the M8 test split, `NeuralDecoder` beats `FuzzyDecoder` by a
 clear margin under medium and heavy paraphrase, with the comparison in one
 table. Confidence is calibrated (reliability plot, expected calibration error
-reported) because the scorer consumes it as a probability. Contract tests shared
-with `FuzzyDecoder` all pass.
+reported) because the scorer is to consume it as a probability. *Today it does
+not:* `score.py` uses confidence only as a weight in the ranking, and the
+consistency gate ignores it. So M9 includes that decision-rule change and ADR
+0003's recalibration. Contract tests shared with `FuzzyDecoder` all pass.
 
 **Prompt:**
 > Read CLAUDE.md. Build M9: the neural slot decoder. Define the SlotDecoder
@@ -273,11 +394,11 @@ across noise regimes** (clean, retype, OCR noise, each paraphrase strength):
 for each reader's measured misread rate, the tolerance it implies, the floor
 that keeps innocent identifications at zero, and what that floor costs
 single-source identification. Include the bits-based floor (NOTES.md, M5.5)
-with enough trials to stabilise its threshold. **Hypothesis to validate
-(single seed, M5.5):** the `--hypotheses` pair never included an outsider at
-24 or more slots read. All 75 outsider pairs in the seed-1 floor sweep came
-from leaks with 11–23 reads. Sweep pair accuracy against slots read across
-many seeds before anyone relies on it.
+with enough trials to stabilise its threshold. Sweep `--hypotheses` pair
+accuracy against slots read across many seeds. *(The M5.5 hypothesis that pairs
+never include an outsider at 24 or more reads is retracted. On the M6 paper,
+seed 1 has outsider pairs at 24 and 25 reads: 2 among 921 multi-source results
+at ≥ 24 reads, NOTES.md M5.5.)*
 
 **Acceptance:** `.\tasks.ps1 bench` writes `eval/out/results.csv` plus figures;
 false-identification rate reported for every cell and is zero or has a stated
@@ -344,8 +465,10 @@ appears. Dashboard never displays raw codewords.
 > Read CLAUDE.md. Build M13: the dashboard in web/ with React, TypeScript,
 > Vite and Tailwind. Four screens: create exam, review and approve variants with
 > the fairness report shown per variant, generate papers with live job progress,
-> and trace a leak showing outcome, margin, threshold, positions read versus
-> erased, ranked centres and a download link for the evidence PDF. Raw codewords
+> and trace a leak showing outcome, threshold, positions read versus erased and
+> a download link for the evidence PDF. Show the margin and the ranked centres
+> only beside an IDENTIFIED verdict or on explicit request, labelled as not a
+> verdict (CLAUDE.md rule 4; `show_ranking` in examfp/cli.py). Raw codewords
 > must never be rendered. Add a Playwright end-to-end test that drives the whole
 > flow against the compose stack and asserts the correct centre is named.
 
@@ -358,7 +481,9 @@ appears. Dashboard never displays raw codewords.
 `.env.example`; CI building and pushing images on tag; `docs/RUNBOOK.md`
 (deploy, roll back, rotate keys, restore from backup, what to do when a trace
 is disputed); `docs/THREAT_MODEL.md`; backup job for Postgres with a documented
-restore drill; `.\tasks.ps1 smoke` hitting a deployed instance.
+restore drill; `.\tasks.ps1 smoke` hitting a deployed instance. **Also (from
+M6):** cache the NLI model (`cross-encoder/nli-deberta-v3-small` at revision
+`fa28048`) in CI, so the local-only fairness acceptance test runs there too.
 
 **Acceptance:** `docker compose up` from a clean machine brings the whole stack
 up; the smoke test passes; the restore drill is performed once and its result

@@ -2,9 +2,11 @@
 
 ``python -m examfp.cli generate <paper.json> --centres N --out DIR`` writes one
 ``centre_<id>.txt`` per centre (the paper rendered as text for that centre's
-symbol vector) plus the codebook. With ``--encrypt`` the codebook is only ever
-written as an AES-GCM envelope (``codebook.json.enc``, key from ``TRACE_KEK``)
-and ``trace``/``demo`` decrypt it in memory. Side effects live here; the
+symbol vector) plus the codebook. By default the codebook is only ever written
+as an AES-GCM envelope (``codebook.json.enc``, key from ``TRACE_KEK``), and
+``trace``/``demo`` decrypt it in memory; ``--plaintext`` opts out, with a
+warning naming the file. ``demo`` and the dashboard follow the same rule for
+their demo codebook in ``out/``. Side effects live here; the
 library modules stay pure. The dashboard lives in ``api/`` (``python -m
 api.dashboard``) so this package depends on no repo tooling.
 """
@@ -42,6 +44,9 @@ from examfp.decode.score import (
     score,
     unique_pair_hypothesis,
 )
+from examfp.fairness.check import CHECKS, Channel, FairnessChecker, planned_checks
+from examfp.fairness.nli import CrossEncoderNli, nli_model_dir
+from examfp.fairness.readability import Zipf, wordfreq_zipf
 from examfp.models import Paper
 
 app = typer.Typer(add_completion=False, help="examfp end-to-end trace.")
@@ -62,14 +67,27 @@ def _fail(message: str) -> typer.Exit:
     return typer.Exit(code=2)
 
 
-def vault_from_env(encrypt: bool) -> Vault | None:
-    """Return the env-var vault when encrypting; exit cleanly if its key is unusable."""
-    if not encrypt:
+def codebook_vault(plaintext: bool) -> Vault | None:
+    """The vault codebooks are sealed with; ``None`` only under ``--plaintext``.
+
+    Guarantees: sealing is the default for ``generate``, ``demo`` and the
+    dashboard; a missing or unusable ``TRACE_KEK`` exits (code 2), naming
+    ``--plaintext``, before anything is written.
+    """
+    if plaintext:
         return None
     try:
         return EnvVault.from_environ(os.environ)
     except VaultError as exc:
-        raise _fail(str(exc)) from None
+        raise _fail(f"{exc}. Codebooks are sealed by default: set TRACE_KEK, or pass "
+                    "--plaintext to write an unencrypted codebook.") from None
+
+
+def warn_plaintext(path: Path, written: bool = True) -> None:
+    """Warn that a plaintext codebook is on disk, naming the file."""
+    action = "wrote" if written else "reused"
+    typer.echo(f"warning: {action} a PLAINTEXT codebook at {path}. It is a secret "
+               "(CLAUDE.md rule 5); delete it, or omit --plaintext.", err=True)
 
 
 def write_codebook(book: Codebook, directory: Path, vault: Vault | None) -> Path:
@@ -127,6 +145,16 @@ def ensure_codebook(paper: Paper, directory: Path, vault: Vault | None) -> Codeb
     return expected
 
 
+def ensure_demo_codebook(paper: Paper, directory: Path, vault: Vault | None) -> Codebook:
+    """:func:`ensure_codebook`, warning when the codebook it writes or reuses is plaintext."""
+    path = directory / CODEBOOK_PLAIN
+    existed = path.exists()
+    book = ensure_codebook(paper, directory, vault)
+    if vault is None:
+        warn_plaintext(path, written=not existed)
+    return book
+
+
 def render_text(paper: Paper, symbols: Mapping[tuple[str, str], int]) -> str:
     """Render ``paper`` as plain text for one centre's symbol vector."""
     lines = [paper.title, "=" * len(paper.title), ""]
@@ -146,19 +174,92 @@ def generate(
     centres: Annotated[int, typer.Option(help="Number of centres to generate.")] = 1000,
     out: Annotated[Path, typer.Option(help="Output directory.")] = Path("out"),
     seed: Annotated[int, typer.Option(help="Codebook seed (picks centre messages).")] = 0,
-    encrypt: Annotated[
-        bool, typer.Option("--encrypt/--no-encrypt", help="Seal the codebook (key: TRACE_KEK).")
+    plaintext: Annotated[
+        bool,
+        typer.Option("--plaintext", help="Opt out of encryption: write codebook.json in clear "
+                     "(a secret on disk; prints a warning naming the file)."),
     ] = False,
+    skip_fairness: Annotated[
+        bool,
+        typer.Option("--skip-fairness", help="Opt out of the fairness checker (prints every "
+                     "check skipped; the paper is then not machine-checked)."),
+    ] = False,
+    model_cache: Annotated[
+        Path, typer.Option(help="Local model cache holding the pinned NLI model.")
+    ] = Path("models"),
 ) -> None:
-    """Generate per-centre text papers and a codebook."""
-    vault = vault_from_env(encrypt)  # fail before writing anything
+    """Generate per-centre text papers and a codebook, sealed unless ``--plaintext``.
+
+    Guarantees: by default only an AES-GCM envelope (key from ``TRACE_KEK``) is
+    written, and a missing or unusable key stops the command before anything is
+    written; ``--plaintext`` writes ``codebook.json`` and warns, naming the file.
+    Unless ``--skip-fairness``, every variant must pass the fairness checker
+    first: one failing variant, or a checker that cannot run, writes nothing.
+    """
+    vault = codebook_vault(plaintext)  # fail before writing anything
     paper = Paper.model_validate_json(paper_path.read_text(encoding="utf-8"))
+    if skip_fairness:
+        _warn_fairness_skipped(paper)
+    else:
+        _require_fairness(paper, model_cache)
     codebook = assign(paper, centres, seed)
     write_centre_papers(paper, codebook, out)
     path = write_codebook(codebook, out, vault)
     typer.echo(f"wrote {len(codebook)} centre files + {path.name} to {out}")
-    if vault is not None and (out / CODEBOOK_PLAIN).exists():
-        typer.echo(f"warning: an earlier plaintext {CODEBOOK_PLAIN} is still in {out}")
+    if vault is None:
+        warn_plaintext(path)
+    elif (out / CODEBOOK_PLAIN).exists():
+        typer.echo(f"warning: an earlier plaintext {CODEBOOK_PLAIN} is still in {out}",
+                   err=True)
+
+
+def build_fairness_checker(model_cache: Path) -> FairnessChecker:
+    """The checker ``generate`` runs: the pinned NLI model and wordfreq, both loaded lazily.
+
+    Guarantees: constructing it reads no model file and imports neither torch nor
+    wordfreq; they load on first use, and a missing one raises then.
+    """
+    found: list[Zipf] = []
+
+    def zipf(word: str) -> float:
+        if not found:
+            found.append(wordfreq_zipf())
+        return found[0](word)
+
+    return FairnessChecker(CrossEncoderNli(nli_model_dir(model_cache)), zipf)
+
+
+def _require_fairness(paper: Paper, model_cache: Path) -> None:
+    """Exit before anything is written unless every variant passes the fairness checker."""
+    try:
+        reports = build_fairness_checker(model_cache).check_paper(paper)
+    except (FileNotFoundError, ImportError) as exc:
+        raise _fail(f"cannot run the fairness checker: {exc}. Fetch the model "
+                    "(.\\tasks.ps1 fetch-models), install the fairness extra, or pass "
+                    "--skip-fairness.") from None
+    failing = [r for r in reports if not r.passed]
+    if not failing:
+        typer.echo(f"fairness: all {len(reports)} variants pass")
+        return
+    for report in failing:
+        typer.echo(f"  {report.question_id}.{report.slot} {report.values}: "
+                   f"{', '.join(sorted(report.failed)) or 'not every check ran'}", err=True)
+        for check in report.checks:
+            if check.ran and not check.passed:
+                typer.echo(f"      {check.name}: {check.reason}", err=True)
+    raise _fail(f"refusing to generate: {len(failing)} of {len(reports)} variants fail the "
+                "fairness checker (pass --skip-fairness to override)")
+
+
+def _warn_fairness_skipped(paper: Paper) -> None:
+    """Name every check ``--skip-fairness`` skipped, channel by channel."""
+    planned = planned_checks(paper)
+    typer.echo("warning: fairness checks skipped (--skip-fairness); this paper is NOT "
+               "machine-checked:", err=True)
+    for channel in Channel:
+        if planned[channel]:
+            typer.echo(f"  {channel.value}: {', '.join(CHECKS[channel])} "
+                       f"({planned[channel]} variants)", err=True)
 
 
 @app.command()
@@ -172,8 +273,9 @@ def trace(
         bool,
         typer.Option(
             "--hypotheses/--no-hypotheses",
-            help="For MULTI_SOURCE_SUSPECTED, also print the opt-in pair hypothesis "
-            "with its measured accuracy. Investigative only.",
+            help="Investigative output, never a verdict: the ranked scores for any "
+            "outcome and, for MULTI_SOURCE_SUSPECTED, the pair hypothesis with its "
+            "measured accuracy.",
         ),
     ] = False,
 ) -> None:
@@ -187,12 +289,16 @@ def trace(
 
     total = len(paper_model.positions())
     read = result.positions_used
-    typer.echo(f"outcome: {result.outcome.value}   margin: {result.margin:.2f}")
+    ranking = show_ranking(result.outcome, hypotheses)
+    margin = f"   margin: {result.margin:.2f}" if ranking else ""
+    typer.echo(f"outcome: {result.outcome.value}{margin}")
     typer.echo(f"positions read: {read} / erased: {total - read} (of {total})")
-    typer.echo("top 5 centres:")
-    for rank, (centre, sc) in enumerate(result.ranked[:5]):
-        tag = "  (consistent)" if rank < result.consistent else ""
-        typer.echo(f"  centre {centre}: {sc:.2f}{tag}")
+    if ranking:
+        typer.echo("top 5 centres:" if result.outcome is Outcome.IDENTIFIED
+                   else "ranked scores (--hypotheses) - not a verdict:")
+        for rank, (centre, sc) in enumerate(result.ranked[:5]):
+            tag = "  (consistent)" if rank < result.consistent else ""
+            typer.echo(f"  centre {centre}: {sc:.2f}{tag}")
     typer.echo("recovered positions:")
     for (qid, slot), (symbol, conf) in observations.items():
         typer.echo(f"  {qid}::{slot} = {symbol} (conf {conf:.2f})")
@@ -209,6 +315,17 @@ def trace(
         else:
             typer.echo(f"hypothesis (--hypotheses): not applicable - the outcome is "
                        f"{result.outcome.value}.")
+
+
+def show_ranking(outcome: Outcome, hypotheses: bool = False) -> bool:
+    """Whether a ranked list of centres may be displayed.
+
+    Guarantees: by default a ranking appears only beside an ``IDENTIFIED``
+    verdict, where the named centre already is the verdict. For every other
+    outcome it appears only on explicit request (``--hypotheses``), so rank 1 is
+    never on screen as a stand-in for a verdict the decision rule did not reach.
+    """
+    return outcome is Outcome.IDENTIFIED or hypotheses
 
 
 def verdict_lines(result: ScoreResult) -> list[str]:
@@ -255,7 +372,7 @@ def hypothesis_lines(pair: tuple[int, int] | None) -> list[str]:
         f"hypothesis (--hypotheses): {{{a}, {b}}} is the only pair of centres that jointly "
         "explains the slots read.",
         f"  Measured accuracy: {PAIR_HYPOTHESIS_CORRECT} of {PAIR_HYPOTHESIS_NAMED} such pairs "
-        "were correct (M5.5 benchmark);",
+        "were correct (collusion benchmark, sample paper);",
         "  every wrong pair came from a leak involving 3 or more centres.",
         "  The system cannot distinguish a two-centre leak from a larger one, so either",
         "  centre may have taken no part.",
@@ -304,15 +421,21 @@ def demo(
         "data/papers/sample.json"
     ),
     seed: Annotated[int, typer.Option(help="RNG seed (centre + attack).")] = 0,
-    encrypt: Annotated[
-        bool, typer.Option("--encrypt/--no-encrypt", help="Seal the codebook (key: TRACE_KEK).")
+    plaintext: Annotated[
+        bool,
+        typer.Option("--plaintext", help="Opt out of encryption: write codebook.json in clear "
+                     "(a secret on disk; prints a warning naming the file)."),
     ] = False,
 ) -> None:
-    """Tell the whole story: generate, leak, trace, and report."""
+    """Tell the whole story: generate, leak, trace, and report.
+
+    Guarantees: the demo codebook in ``out/`` is sealed unless ``--plaintext``,
+    which warns, naming the file and whether it was written or reused.
+    """
     start = time.perf_counter()
-    vault = vault_from_env(encrypt)
+    vault = codebook_vault(plaintext)
     paper = Paper.model_validate_json(paper_path.read_text(encoding="utf-8"))
-    book = ensure_codebook(paper, Path("out"), vault)
+    book = ensure_demo_codebook(paper, Path("out"), vault)
 
     rng = random.Random(seed)
     centre = rng.choice(list(book.keys()))
@@ -330,10 +453,11 @@ def demo(
     typer.echo("")
     typer.echo(f"true centre: {centre}")
     typer.echo(f"positions read: {read} / erased: {total - read} (of {total})")
-    typer.echo("top 5 centres:")
-    for rank, (cid, sc) in enumerate(result.ranked[:5], start=1):
-        marker = "  <- true" if cid == centre else ""
-        typer.echo(f"  {rank}. centre {cid}: {sc:.2f}{marker}")
+    if show_ranking(result.outcome):
+        typer.echo("top 5 centres:")
+        for rank, (cid, sc) in enumerate(result.ranked[:5], start=1):
+            marker = "  <- true" if cid == centre else ""
+            typer.echo(f"  {rank}. centre {cid}: {sc:.2f}{marker}")
     for line in verdict_lines(result):
         typer.echo(line)
     typer.echo(f"elapsed: {elapsed_ms:.0f} ms")

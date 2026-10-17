@@ -277,7 +277,7 @@ def loads_codebook(text: str) -> Codebook:
 def save_codebook(codebook: Codebook, path: str | Path) -> None:
     """Write ``codebook`` to ``path`` as **plaintext** JSON.
 
-    Prefer the encrypted path (``--encrypt``, :mod:`examfp.codebook.crypto`):
+    Prefer the encrypted path (the CLI default, :mod:`examfp.codebook.crypto`):
     codebooks are secrets (CLAUDE.md, security rules).
     """
     Path(path).write_text(dumps_codebook(codebook), encoding="utf-8")

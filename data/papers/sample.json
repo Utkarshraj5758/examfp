@@ -8,7 +8,7 @@
       "answer": "60 km/h",
       "marks": 3,
       "slots": [
-        { "name": "intro", "variants": ["On the way to Nashik,", "On the Pune highway,"] },
+        { "name": "intro", "variants": ["On the way to Nashik,", "While driving to Nashik,"] },
         { "name": "speed", "fills": ["dist", "time"],
           "difficulty_band": { "operation": "divide", "operand_digits": [3, 1], "exclude_trivial": true },
           "variants": [
@@ -18,7 +18,7 @@
           ] },
         { "name": "unit", "kind": "unit_form", "variants": ["km/h", "kilometres per hour", "kmph"] },
         { "name": "lead", "variants": ["Calculate", "Work out"] },
-        { "name": "closing", "variants": ["Show your working.", "Show all your steps."] }
+        { "name": "closing", "variants": ["Show your working.", "Include your working."] }
       ]
     },
     {
@@ -32,7 +32,7 @@
           "fills": ["optA", "optB", "optC", "optD", "optE"],
           "options": ["Carbon dioxide", "Oxygen", "Nitrogen", "Hydrogen", "Water vapour"],
           "correct": 0 },
-        { "name": "closing", "variants": ["Choose one option only.", "Tick the correct box."] }
+        { "name": "closing", "variants": ["Choose one option only.", "Select only one option."] }
       ]
     },
     {
@@ -44,13 +44,12 @@
         { "name": "dims", "fills": ["w", "h"],
           "difficulty_band": { "operation": "multiply", "operand_digits": [2, 2], "exclude_trivial": true },
           "variants": [
-            { "values": ["16", "90"] }, { "values": ["18", "80"] }, { "values": ["20", "72"] },
-            { "values": ["24", "60"] }, { "values": ["30", "48"] }, { "values": ["32", "45"] },
-            { "values": ["36", "40"] }
+            { "values": ["16", "90"] }, { "values": ["18", "80"] }, { "values": ["24", "60"] },
+            { "values": ["30", "48"] }, { "values": ["36", "40"] }
           ] },
         { "name": "unit", "kind": "unit_form", "variants": ["cm²", "sq cm", "square centimetres"] },
         { "name": "lead", "variants": ["Calculate", "Work out"] },
-        { "name": "closing", "variants": ["Show your working.", "Show all your steps."] }
+        { "name": "closing", "variants": ["Show your working.", "Include your working."] }
       ]
     },
     {
@@ -62,12 +61,12 @@
         { "name": "pctval", "fills": ["pct", "whole"],
           "difficulty_band": { "operation": "percent", "operand_digits": [2, 3], "exclude_trivial": true },
           "variants": [
-            { "values": ["15", "400"] }, { "values": ["16", "375"] }, { "values": ["20", "300"] },
-            { "values": ["24", "250"] }, { "values": ["25", "240"] }, { "values": ["30", "200"] },
-            { "values": ["40", "150"] }
+            { "values": ["15", "400"] }, { "values": ["16", "375"] }, { "values": ["24", "250"] },
+            { "values": ["30", "200"] }, { "values": ["40", "150"] }, { "values": ["12", "500"] },
+            { "values": ["48", "125"] }
           ] },
         { "name": "lead", "variants": ["Calculate", "Work out"] },
-        { "name": "closing", "variants": ["Show your working.", "Show all your steps."] }
+        { "name": "closing", "variants": ["Show your working.", "Include your working."] }
       ]
     },
     {
@@ -81,7 +80,7 @@
           "fills": ["optA", "optB", "optC", "optD", "optE"],
           "options": ["0.5", "0.2", "0.25", "0.75", "0.05"],
           "correct": 0 },
-        { "name": "closing", "variants": ["Choose one option only.", "Tick the correct box."] }
+        { "name": "closing", "variants": ["Choose one option only.", "Select only one option."] }
       ]
     },
     {
@@ -90,7 +89,7 @@
       "answer": "8 g/cm³",
       "marks": 3,
       "slots": [
-        { "name": "intro", "variants": ["In a Bengaluru lab,", "In the school lab,"] },
+        { "name": "intro", "variants": ["In a Bengaluru lab,", "In a lab in Bengaluru,"] },
         { "name": "density", "fills": ["mass", "vol"],
           "difficulty_band": { "operation": "divide", "operand_digits": [2, 1], "exclude_trivial": true },
           "variants": [
@@ -100,7 +99,7 @@
           ] },
         { "name": "unit", "kind": "unit_form", "variants": ["g/cm³", "grams per cubic centimetre", "g per cm³"] },
         { "name": "lead", "variants": ["Calculate", "Work out"] },
-        { "name": "closing", "variants": ["Show your working.", "Show all your steps."] }
+        { "name": "closing", "variants": ["Show your working.", "Include your working."] }
       ]
     },
     {
@@ -109,17 +108,16 @@
       "answer": "₹1440",
       "marks": 2,
       "slots": [
-        { "name": "intro", "variants": ["At a Delhi bookshop,", "In a Chennai store,"] },
+        { "name": "intro", "variants": ["At a Delhi bookshop,", "At a bookshop in Delhi,"] },
         { "name": "cur", "kind": "unit_form", "variants": ["₹", "Rs."] },
         { "name": "cost", "fills": ["price", "qty"],
           "difficulty_band": { "operation": "multiply", "operand_digits": [2, 2], "exclude_trivial": true },
           "variants": [
-            { "values": ["90", "16"] }, { "values": ["80", "18"] }, { "values": ["72", "20"] },
-            { "values": ["60", "24"] }, { "values": ["48", "30"] }, { "values": ["45", "32"] },
-            { "values": ["40", "36"] }
+            { "values": ["90", "16"] }, { "values": ["80", "18"] }, { "values": ["60", "24"] },
+            { "values": ["48", "30"] }, { "values": ["40", "36"] }
           ] },
         { "name": "lead", "variants": ["Calculate", "Work out"] },
-        { "name": "closing", "variants": ["Show your working.", "Show all your steps."] }
+        { "name": "closing", "variants": ["Show your working.", "Include your working."] }
       ]
     },
     {
@@ -133,7 +131,7 @@
           "fills": ["optA", "optB", "optC", "optD", "optE"],
           "options": ["17", "21", "27", "33", "39"],
           "correct": 0 },
-        { "name": "closing", "variants": ["Choose one option only.", "Tick the correct box."] }
+        { "name": "closing", "variants": ["Choose one option only.", "Select only one option."] }
       ]
     }
   ]

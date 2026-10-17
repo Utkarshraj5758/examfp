@@ -10,24 +10,38 @@ measured on the sample paper (`data/papers/sample.json`: 8 questions,
 
 ### F1 — Capacity: one paper cannot carry a provable code
 
-Tardos (2003) needs code length `m = ceil(100 * c^2 * ln(n/eps))`, constant kept
-literally. The sample paper offers **31 positions** (59.5 payload bits; 51 Tardos
-bits after taking `floor(log2(alphabet))` per position).
+Tardos (2003) needs code length `m = 100 * c^2 * k` with
+`k = ceil(ln(n/eps))` (Tardos's `k = ceil(ln(1/eps_1))`, union bound
+`eps_1 = eps/n`), constants kept literally. The sample paper offers **31
+positions** (59.5 payload bits before M6, 58.5 after; 51 Tardos bits after taking
+`floor(log2(alphabet))` per position).
 
-Required positions, `n = 500` centres:
+*Corrected 2026-10-17:* until then the code and this table used the unrounded
+`ln(n/eps)` in place of `k`. That gave `m` and `Z` smaller than the proof
+requires, the unsafe direction. The table also mixed rounding (nearest integer
+here, ceiling in the text). Every figure below now uses the ceiling.
+
+Required positions, `n = 500` centres (`k` = 11, 14, 21 for the three `eps`):
 
 | c | eps = 1e-2 | eps = 1e-3 | eps = 1e-6 |
 |---|-----------:|-----------:|-----------:|
-| 2 | 4,328 | 5,249 | 8,012 |
-| 3 | 9,738 | 11,810 | 18,027 |
-| 5 | 27,049 | 32,806 | 50,075 |
+| 2 | 4,400 | 5,600 | 8,400 |
+| 3 | 9,900 | 12,600 | 18,900 |
+| 5 | 27,500 | 35,000 | 52,500 |
 
 No cell is reachable. At `eps = 1e-6` the sample supports `c_max = 0.12`; a
 realistic 60-question paper (~3.9 positions/question, ~232 positions) reaches
-only `c_max = 0.34` — not even one colluder. Multi-paper layering makes the
-length representable: at `n = 500, c = 3, eps = 1e-6` a centre's codeword is
-18,028 bits = **354 papers per session** at 51 bits/paper. In a coin-strategy
-collusion demo the accuser caught all three colluders and accused no innocent.
+only `c_max = 0.33` (0.34 under the unrounded form) — not even one colluder.
+Multi-paper layering makes the length representable: at
+`n = 500, c = 3, eps = 1e-6` a centre's codeword is 18,900 bits = **371 papers
+per session** at 51 bits/paper (354 under the unrounded form). In a
+coin-strategy collusion demo the accuser caught all three colluders and accused
+no innocent, both before and after the correction (CLI defaults n = 100, c = 3,
+eps = 0.01: m = 9,000, Z = 600).
+
+*Still unrounded:* `Paper.capacity_report` in the frozen `models.py` prints
+`m = 100*c^2*ln(n/eps)` for its theoretical line and feasibility grid. Changing
+it needs explicit instruction; until then its figures are slightly low.
 
 **Consequence:** two modes that must never be conflated — see
 [ADR 0001](docs/ADR/0001-two-modes.md). The empirical constant `k` is still
@@ -133,7 +147,9 @@ late leaks perform alike — see the M5 section below.
   `out/codebook.json` unencrypted, violating security rule 5. `.gitignore`
   keeps it out of git, but the real fix is envelope encryption (M12).
   *M5: partly resolved — `--encrypt` writes only an AES-GCM envelope. Plaintext
-  is still the default so the demo runs with zero setup.*
+  is still the default so the demo runs with zero setup.* *2026-10-17: sealing
+  is now the default for `generate`, `demo` and the dashboard; `--plaintext`
+  opts out with a warning (M5 open items below).*
 - **Layout drift.** `api/dashboard.py` and `eval/` predate the CLAUDE.md layout
   (`service/`, `web/`). `examfp/cli.py`'s `dashboard` command imports
   `api.dashboard`, so the core library reaches into repo tooling — against
@@ -250,6 +266,16 @@ confirming the baseline was preserved verbatim. Raw data: `eval/out/results.csv`
   encrypt or keep them in the service in M12.
 - **Plaintext by default.** `--encrypt` is opt-in; flip the default once a
   vault is part of normal setup (M12).
+  *Fixed for `generate` (2026-10-17, brought forward from M12):* the audit
+  found rule 5 violated in practice (`out/` held a plaintext codebook and 1,000
+  codebook-equivalent papers; that directory was sent to the Recycle Bin).
+  `generate` now seals by default, refuses to run without `TRACE_KEK`, and
+  `--plaintext` opts out with a warning naming the file. `demo` and
+  `python -m api.dashboard` now follow the same rule for their demo codebook in
+  `out/` (`--encrypt` is gone; their `--plaintext` warns, naming the file and
+  whether it was written or reused). *Still open:* every entry point writes the
+  rendered papers (`out/centre_*.txt`) in clear, and each is
+  codebook-equivalent (open item above).
 
 ---
 
@@ -369,25 +395,468 @@ q7 6.81, q8 8.89.
   Predicted gain at 18.59 bits: single-source 3-question leaks 80–81% → 90–92%;
   2-question leaks stay at 0% (bound above). `MIN_READ_SLOTS` stays 11. M11 must
   stabilise the threshold with far more trials before any adoption.
-- **Pair accuracy above 24 slots — hypothesis for M11, single seed.** In the
-  floor sweep (seed 1, crops 1–8), `--hypotheses` pairs that included an
-  outsider appeared only at 11–23 slots read: 75 among 2,315 multi-source results
-  at ≥ 11 reads. None appeared at 24 or more. That suggests the pair hypothesis
-  may be reliable on larger leaks, but it is **one seed** and is not used
-  anywhere. M11's sweep must validate it before anyone relies on it.
+- **Pair accuracy above 24 slots — retracted (2026-10-17).** On the pre-M6
+  paper, seed 1's floor sweep showed `--hypotheses` pairs that included an
+  outsider only at 11–23 slots read (75 among 2,315 multi-source results at ≥ 11
+  reads). This note read that as a hint the pair might be reliable on larger
+  leaks. **The same sweep on the M6 paper contradicts it:** seed 1 (4,000 leaks,
+  crops 1–8, gate with no floor) has outsider pairs at **24 and at 25 reads**,
+  one each. That is 2 among the 921 multi-source results at ≥ 24 reads, and 73
+  among 2,310 at ≥ 11 (`eval/out/results_floor.csv`). There is no read count
+  above which the pair can be trusted. It stays an opt-in hypothesis printed with
+  its measured error.
 - **Rename `MULTI_SOURCE_SUSPECTED` in M7 (proposal).** The outcome means "no
   single centre in this codebook explains the observed slots", and it has three
   causes. The name asserts only the first. M7's OCR recalibration will make cause
   (2), misreads beyond the tolerance, more likely, and M7 touches this code
   anyway. Rename then, e.g. to `NO_CONSISTENT_SOURCE`. Kept as-is for now to
   avoid churn across the enum, CLI, bench CSV and CLAUDE.md rule 4.
-- **Contract wording on pairs (owner).** CLAUDE.md rule 4 still allows
-  `MULTI_SOURCE_SUSPECTED` to "name at most one pair". The code is now stricter:
-  verdicts name nobody, and the pair appears only under `--hypotheses`. The rule
-  is still satisfied; whether to tighten it is the owner's call.
-- **Ranked list on multi-source leaks.** The trace still prints the top 5
-  centres by score for every outcome, including `MULTI_SOURCE_SUSPECTED`. It is
-  not a verdict, but a reader could take it as one. Revisit with the rename in
-  M7.
+- **Contract wording on pairs.** *Fixed:* CLAUDE.md rule 4 now matches the code.
+  A verdict names at most one centre, and only on `IDENTIFIED`. A multi-source
+  verdict names nobody. A ranking is shown only beside `IDENTIFIED` or on
+  request. Pair hypotheses are opt-in and always carry their measured accuracy.
+  `tests/test_repo_hygiene.py` checks that the rule lists exactly the `Outcome`
+  values, so the M7 rename cannot leave the contract behind.
+- **Ranked list on non-identifying outcomes.** *Fixed.* The trace, the demo and
+  the dashboard printed the top 5 centres with scores for every outcome, which
+  defeated the gate at the display layer: on a two-centre full-paper leak, the
+  default `MULTI_SOURCE_SUSPECTED` output listed both colluders at ranks 1–2 and
+  three innocent centres below them. A reader would take rank 1 as the verdict.
+  Now `show_ranking()` in `examfp/cli.py` allows a ranking (and the margin) only
+  beside an `IDENTIFIED` verdict, or under `trace --hypotheses`, where it is
+  labelled "not a verdict". The dashboard uses the same rule. Tests assert that no
+  centre identifier appears in the default output of a `MULTI_SOURCE_SUSPECTED`,
+  `NO_MATCH` or `INSUFFICIENT` trace.
 - **Contract.** *Fixed:* CLAUDE.md now promises a measured false-identification
   rate (practical mode) or a provable collusion bound (provable mode).
+
+---
+
+## M6 — Fairness checker (2026-10-17)
+
+**Built.** `examfp/fairness/`: `answers.py` (SymPy, exact `Rational`),
+`bands.py` (the frozen band validator, wrapped, plus the step rule of
+[ADR 0004](docs/ADR/0004-step-count-rule.md)), `nli.py` (the pinned
+cross-encoder, lazy, local files only), `units.py` (unit table),
+`readability.py`, `check.py` (`FairnessChecker`; one `FairnessReport` per
+variant with per-check pass/fail and reason), `pins.py` (model id, revision,
+files). `.\tasks.ps1 fetch-models` is the only download; `.\tasks.ps1 fairness`
+runs the local acceptance and `eval/nli_reliability.py`.
+
+**Dependencies.** SymPy 1.14.0 is a base dependency; the `fairness` extra holds
+torch 2.14.1, transformers 5.19.0, tokenizers 0.23.3, sentencepiece 0.2.2 and
+wordfreq 3.1.1. The whole pinned set, all extras together, resolves with wheels
+only for Python 3.11 and 3.12 on Windows (83 packages each; 74 / 73 at M4). The
+revision ships `tokenizer.json`, so no protobuf is needed. A `.[dev]`-only venv
+(CI's profile: SymPy present, no torch, transformers or wordfreq) is lint-clean
+and passes 371 tests with `local_model` deselected.
+
+| slot | channel | checks, in order |
+|---|---|---|
+| unbanded text | wording | numbers identical → NLI both ways → readability (stop at first failure) |
+| unit form | unit form | numbers identical → unit table → readability |
+| banded group | numeric | SymPy answer, digits, trivial; then steps, only for a valid band member with the right answer |
+| option order | option order | same options, answer letter on the correct text |
+
+A check that did not run is recorded as not run and counts as not passed. The
+separation is proved in CI: a raising NLI backend for every numeric and
+unit-form variant and for U11; a spy showing every pair the model saw has
+identical numbers and reference numeric groups; SymPy and the band rules
+patched to raise during wording checks.
+
+### Owner rulings in this session
+
+- **Step rule** (ADR 0004): equal positional operations AND equal carries,
+  borrows or non-zero remainders in the canonical written method; per-operation
+  definitions, addition/subtraction included. Every carry counts (the leftmost
+  column's and those in the addition of partial products); the multiplier is
+  the second operand in fill order.
+- **After the first acceptance run:** keep the model and threshold 0.5, record
+  the failure, and fix the paper; judge unit forms with a deterministic unit
+  table instead of NLI.
+
+### Acceptance — not met (recorded on the owner's decision)
+
+`cross-encoder/nli-deberta-v3-small@fa2804872c3b4bd748f38c0185cc85775361e735`,
+threshold 0.5 both ways, CPU (AMD64 family 25, 6 torch threads), 2026-10-17:
+
+| criterion | target | result |
+|---|---|---|
+| false acceptances, 11 unfair entries | 0 | **0**, each failing exactly its labelled rule |
+| false rejections, 29 fair entries | ≤ 2 | **3** (F11, F13, F14): **not met**. 5 before the unit table (also F21, F22) |
+| lazy load | yes | yes: construction touches neither disk nor torch |
+| one pair scored on CPU | < 300 ms | median 76 ms, max 95 ms (21 pairs); first call 20 s cold (imports + load) |
+| sample paper passes every check | yes | yes, 414 reports |
+
+All three rejections come from NLI, and no threshold rescues them:
+
+| entry | candidate (reference) | ref → cand | cand → ref |
+|---|---|--:|--:|
+| F11 | "Show all your steps." ("Show your working.") | 0.009 | 0.881 |
+| F13 | "Show each step of your working." | 0.003 | 0.972 |
+| F14 | "Tick the correct box." ("Choose one option only.") | 0.524 | 0.034 |
+| U09, unfair | "Give your answer in square metres." | 0.000 | 0.803 |
+| U10, unfair | "Identify a value other than" | 0.008 | 0.827 |
+
+The fair rejections share the unfair entries' one-way pattern: F13's weaker
+direction (0.003) is below U10's (0.008). Entailment is stricter than "asks the
+same question": a more specific instruction entails the general one, not the
+reverse. F14 is the hard case the fixture anticipated. Nothing was tuned on the
+fixture and no label was revised (now a CLAUDE.md rule). The pinned set
+{F11, F13, F14} is a test, and the budget is a strict xfail that fails loudly
+once it passes.
+
+**Unit forms.** The DeBERTa tokenizer maps ² and ³ to `[UNK]`, so the model
+cannot see cm² or g/cm³; it rejected both of q3's alternatives ("sq cm"
+0.002 / 0.005). `units.py` holds exactly the forms the paper and the fixture
+use; matching is exact; an unlisted form fails closed.
+
+### Model reliability (decision 7; M9's baseline)
+
+- **Held-out set** (`eval/nli_reliability.json`, 60 pairs, labelled and
+  committed before any scoring): **55/60 = 91.7% (95% CI 81.6–97.2%)**.
+  Equivalent 27/30 (E03, E09, E25 rejected); changed units 7/7; constraint 8/8;
+  reversed relationship 7/7; changed quantity **6/8**.
+- **Two false acceptances**: N06 circumference → area (0.834 / 0.625) and N08
+  factors → multiples (0.991 / 0.989). The NLI gate can pass a wording variant
+  that asks for a different quantity. The sample's wording slots (lead verbs,
+  closings, intros) sit away from the quantity asked, so the exposure is small
+  here, but NLI alone is not safe for a slot that names the quantity.
+- **Fixture agreement**, on the 20 wording entries the checker sends to the
+  model: 17/20 (85.0%, CI 62.1–96.8%). Unit forms, shown for reference only:
+  3/5.
+- **Context sensitivity:** "Show your method." passes in q3 (F12: 0.647 / 0.857)
+  but fails in q1, q6 and q7.
+
+### Sample paper changes (decisions 3 and 4)
+
+| slot | change | alphabet |
+|---|---|---|
+| q3 dims | removed 20 × 72 (1 carry) and 32 × 45 (4 carries) | 7 → 5 |
+| q7 cost | removed 72 × 20 and 45 × 32 | 7 → 5 |
+| q4 pctval | 20% of 300 and 25% of 240 (one step) → 12% of 500, 48% of 125 | 7 |
+| q1, q6, q7 intro | place-name swaps → same-place paraphrases (F16–F18) | 2 |
+| closings of q1, q3, q4, q6, q7 | "Show all your steps." → "Include your working." | 2 |
+| closings of q2, q5, q8 | "Tick the correct box." → "Select only one option." | 2 |
+
+- **Why 5 for q3 and q7:** exactly five operand sets of 1440 tie with 16 × 90
+  under the step rule ({16, 90}, {18, 80}, {24, 60}, {30, 48}, {36, 40}), and the
+  reader identifies a group by its *set* of numbers, so the swapped F28 and F29
+  (fair, and passing) cannot be added beside their originals.
+- **Replacement wording:** candidate lists were fixed before scoring, and the
+  first candidate passing in every question that uses the closing was taken:
+  "Show your method." failed q1, q6, q7; "Show your work." passed;
+  "Select only one option." passed.
+- **Finding: a near-prefix variant breaks the reader.** "Show your work." is
+  nearly a prefix of "Show your working."; under typos the fuzzy reader took
+  the reference for it 6 times in 104,048 reads (all six misreads were this).
+  Following ADR 0003 for that paper would have set tolerance 1 and floor 16
+  (seed 7), cutting 3-question leaks to 0%, 4-question leaks to 47.5%, and the
+  pair hypothesis to 6/125. A second list fixed in advance ("Show your
+  calculations.", "Include your working.", "Show how you worked it out.") gave
+  "Include your working.", which passes all five (≥ 0.99 both ways) and reads
+  with 0 misreads. **This choice was made after measuring both papers**, so the
+  numbers below come from a paper picked partly on the bench. Authoring rule
+  from now on: no variant may be a near-substring of another in the same slot.
+- **Fixture `approved` flags:** F11 and F14 → false; F15–F18, F26, F27 → true.
+  No label changed.
+
+### Published numbers that moved (`.\tasks.ps1 bench`)
+
+| measure | before M6 | after M6 |
+|---|---|---|
+| payload / group bits | 59.5 / 14.04 | 58.5 / 13.07 |
+| durable fraction | 68.1% | 67.5% |
+| q3 / q7 bits | 6.39 / 6.81 | 5.91 / 6.32 |
+| RS shape | n = 7, k = 2 | n = 7, k = 2; every group's membership changed (ADR 0002) |
+| RS, 3 questions identified | 82.0% | 80.0% |
+| RS, 4–8 questions | 100% | 100% |
+| RS, early / middle thirds, 3 questions | 99.0 / 98.0% | 99.5 / 97.0% |
+| false identification, single source | 0% | 0% in every cell |
+| misreads (6,000 leaks) | 0 / 104,026 | 0 / 104,098; bound 2.88e-5, tolerance 0, unchanged |
+| `MIN_READ_SLOTS` | 11 | 11: false IDs up to 10 reads (seeds 1 and 7), 0 in 5,812 leaks at ≥ 11 |
+| innocents identified, coalitions 1–5 | 0 | 0 |
+| pair hypothesis (`--hypotheses`) | 98 / 109 | 117 / 126; all 9 wrong from 3- or 4-centre leaks |
+| old margin-only rule, 2-centre leaks naming an innocent | 5.5% | 11.5% |
+| bits floor (not deployed) | seed 1 16.29, seed 7 18.59 | seed 1 17.79, seed 7 16.29 |
+| mixed-radix baseline: constant positions / 6 questions | 20 / 91.0% | 19 / 87.0% |
+
+- **The 2-question capacity bound still holds, now with equality.** Seed 1
+  produced a false identification at 17.79 bits, exactly what q2 + q5 carry;
+  a bits floor identifies only strictly above, so 2-question leaks stay at 0%.
+- A bits floor at 17.79 would lift single-source 3-question leaks from 82–84%
+  to 98–99% (seeds 1 and 7). Still M11's open item, not deployed.
+- `out/` from earlier milestones holds a pre-M6 codebook; `demo` refuses it and
+  says to delete `out/`.
+
+### A stronger model, chosen on held-out data (2026-10-17)
+
+**Approved by the owner before any download:**
+`cross-encoder/nli-deberta-v3-base@6c749ce3425cd33b46d187e45b92bbf96ee12ec7`,
+the same seven files as the small pin (`model.safetensors`, 737.7 MB; config
+and tokenizer files only; no ONNX, no `pytorch_model.bin`). Its tokenizer files
+are byte-identical to the small model's, so ² and ³ are still `[UNK]` and unit
+forms stay with the unit table. Pinned as `NLI_BASE` beside `NLI_PIN`, which is
+unchanged; `.\tasks.ps1 fetch-models --model base` fetches it.
+
+**Choice rule, fixed by the owner before any scoring.** The rule uses the
+60-pair held-out set only (`python -m eval.nli_reliability --model small
+--model base --held-out-only`), at threshold 0.5 both ways. Base is chosen only
+if it has **false acceptances ≤ 2 and accuracy ≥ 55/60, with at least one of the
+two strictly better**. A tie on both, or a trade-off, keeps small. The fixture
+is then run once (`.\tasks.ps1 fairness`) with the chosen model. Nothing on the
+fixture feeds back into the choice or the threshold.
+
+**Result: base is not chosen; small stays; M6 stays open.** Held-out set,
+threshold 0.5 both ways, CPU, 2026-10-17:
+
+| model | accuracy | 95% CI | false acc. | false rej. | wrong |
+|---|---|---|--:|--:|---|
+| small `@fa2804872c3b4bd748f38c0185cc85775361e735` | **55/60 = 91.7%** | 81.6–97.2% | 2/30 | 3/30 | E03, E09, E25; N06, N08 |
+| base `@6c749ce3425cd33b46d187e45b92bbf96ee12ec7` | 54/60 = 90.0% | 79.5–96.2% | 2/30 | 4/30 | E03, E09, **E18**, E25; N08, **N29** |
+
+Base ties on false acceptances and is one pair worse on accuracy, so it fails
+"accuracy ≥ 55/60". Small reproduced its recorded numbers exactly.
+
+- **Base rejects the same one-way pairs, plus one more.** In E09, E18 and E25
+  the candidate entails the reference (0.94–0.998) but not the reverse
+  (0.004–0.179). E18 is "Round 4.678 to two decimal places." vs "Give 4.678
+  correct to two decimal places." A bigger NLI model is no more lenient about
+  specificity, which is the pattern behind F11 and F13.
+- **Base accepts a reversed division.** N29 is "Divide 84 by 12." vs "Divide 12
+  by 84." (0.943 / 0.991). Both use the same numbers, so the numbers rule passes
+  it and NLI is the only guard. Small rejects it. Base fixes N06 (circumference
+  → area), and both accept N08 (factors → multiples).
+- **The set cannot separate the two.** One pair apart, with intervals that
+  almost coincide. The rule's tie-break keeps the incumbent, which is the
+  smaller and faster model.
+- **Latency was not the obstacle.** One pair on CPU (AMD64 family 25, 6 torch
+  threads, 21 calls): small median 74 ms (max 93), base median 152 ms (max 198).
+  Both are under 300 ms.
+
+**The one fixture run, with the chosen model (small),** `.\tasks.ps1 fairness`:
+unchanged. 0 false acceptances, each unfair entry failing exactly its labelled
+rule. False rejections {F11, F13, F14}: **3 against a budget of 2**, still the
+strict xfail. Lazy load and the 300 ms test pass, the sample paper passes every
+check, and fixture agreement is 17/20. **Base was not run on the fixture.** The
+protocol runs it only with the chosen model, and its fixture result would invite
+choosing on the fixture.
+
+### Closing M6: three structural rules (2026-10-17)
+
+The owner asked for three changes, tests first: variant separation, a structural
+guard on the quantity asked, and instruction phrasing moved to a curated table.
+Then: mark M6 done if the acceptance passes, otherwise stop and report without
+tuning anything. **It does not pass: 9 false rejections against a budget of 2.**
+Details and basis are in [ADR 0004](docs/ADR/0004-step-count-rule.md),
+parts 2–4.
+
+**1. Variant separation** (`separation.py`, the `separation` check on every
+text-read slot). Sweep `eval/separation.py`: 1,602,000 reads (seed 0). The 23
+text-read slots were paired with synthetic competitors at exact edit distances
+1–12, plus prefix and containment shapes, and read under the bench's attack.
+
+- Edit family misread rate by distance: 0.57%, 0.18%, 0.07%, 0.02%, 0.03%,
+  0.004% for d = 1–6; 0 at d = 7–8; 1 and 14 misreads (of 69,000 reads each) at
+  d = 9 and 10; 0 at d = 11–12.
+- Prefix pairs misread at 0.34–4.95% (d ≤ 8; 6.6% for the single pair at
+  d = 9), containment pairs at 0.54–9.0% (by edit distance).
+- The rule fixed before the run gives **11**: 0 in 138,000 reads at d ≥ 11, 95%
+  bound 2.17e-5 ≤ `MISREAD_RATE`.
+- The tail at d = 9–10 is a short variant nearly embedded in a long one ("cm²"
+  in "xklbccwm²xfjc"; one typo makes it verbatim), which edit distance does not
+  measure.
+- **Owner decision:** extend the structural rule from *prefix* to *any
+  containment* (adopted). Record 11 but **do not adopt** it (deployed minimum 1,
+  the distance rule off): at 11, 17 of the paper's 29 text-variant pairs fail
+  (all leads at d = 7–8, all working closings at d = 7, four short unit pairs),
+  and fixture false rejections would go from 9 to 16.
+- The paper's own pairs read clean except q4 "Show your working." / "Include
+  your working." (d = 7, no containment): **1 misread in 4,000**. The M6 pair
+  "Show your work." misread 2 in 4,000.
+
+**2. The ask is a radical** (`ask.py`, the `ask` check on NLI-judged wording).
+The ask region runs from the first sentence that opens the ask (a table command,
+a literal command, or "?") to the end of the question. A wording slot must sit
+before it, in the stem, or the model is not consulted; with no locatable ask,
+the check fails closed. Held-out N06 and N08 rebuilt as slots are rejected
+before NLI. The sample's only NLI-judged slots, its three intros, sit in the
+stem. **Limit:** relationships and data in the stem ("Asha is 4 years older
+than Ravi") are radicals the rule does not cover; NLI and the numbers rule
+still guard them.
+
+**3. Instruction phrasing** (`instructions.py`, the `instruction` channel).
+The category is the command, working instructions and option-choice phrasing
+that neither name nor constrain the quantity asked. The table is exactly the
+sample paper's instruction vocabulary, four classes and eight phrasings, and a
+test pins it to the paper: nothing came from the fixture. An unlisted phrasing
+fails closed, so NLI is never consulted for instruction slots.
+
+- **Held-out set on open question prose alone** (E09, the one instruction-only
+  pair, removed by a rule fixed in code before scoring): **55/59 = 93.2% (95% CI
+  83.5–98.1%)** against 55/60 = 91.7%. The same 55 correct; the pair removed
+  was one of the model's errors. **This is not an improvement in model quality:
+  the table added coverage, not model quality.** False acceptances stay 2/30
+  (N06, N08); part 2's ask rule, not the model, now keeps those out of a slot.
+
+**Acceptance** (`.\tasks.ps1 fairness`, nli-deberta-v3-small@fa28048, threshold
+0.5, CPU, 2026-10-17):
+
+| criterion | result |
+|---|---|
+| false acceptances, 11 unfair | **0**; each caught by its labelled rule (U10 and U11 also fail `separation`) |
+| false rejections, 29 fair | **9**: F01, F03, F04, F07, F09 (command synonyms the paper does not use), F11, F12, F13, F14 (closings it does not use), all by the instruction table; was 3 |
+| lazy load, < 300 ms per pair | pass |
+| sample paper passes every check | pass |
+| fixture entries decided without the model | 37 of 40; only the three stem intros (F16–F18) reach NLI, which accepts all three |
+
+Every rejection is now a fail-closed table miss, not a model error. The budget
+can be met only by listing more phrasings, an owner decision about coverage.
+Adding the rejected fixture phrasings themselves would be tuning on the
+fixture. **M6 stays `[~]`.** No fixture label was touched, and no `approved`
+flag changed (the paper did not change).
+
+*Correction to the closing session's question:* I first reported that 22 of the
+paper's 29 pairs fall below 11; the count is 17, now pinned by
+`tests/eval/test_separation_sweep.py`.
+
+### Fairness is now part of authoring (2026-10-17)
+
+The audit found the checker outside the authoring path: `generate` never called
+it, so a paper that failed it could still be generated and printed. `generate`
+now runs `FairnessChecker.check_paper` after the vault check and before writing
+anything. Any failing variant, or a checker that cannot run (model not fetched,
+extra not installed), stops it with each failure listed. `--skip-fairness` is
+the explicit opt-out, and it prints every skipped check by channel with variant
+counts. The checks per channel live in `examfp.fairness.check.CHECKS`, which a
+test keeps equal to what the checker runs. On the sample paper, with the real
+model: all 414 variants pass, about 35 s with a cold model load.
+
+### Finding: the sample paper carries fingerprints on features CBSE papers do not have (2026-10-17)
+
+Building the instruction table from a domain source (consolidation session, step
+4) turned up a finding larger than the table. **Real CBSE board papers contain
+no per-question working instruction, and their MCQs have four options with
+section-level choice wording.** So **8 of the sample paper's 31 positions** (five
+"Show your working." closings and three option-choice closings) sit on a textual
+feature that does not exist in the deployment target. Its three five-option MCQs
+(alphabet 5! − 1 = 119) do not match the target either (4! − 1 = 23). These
+are **invented carriers, not unlisted variants**. Not fixed here: the next
+session rebuilds the paper.
+
+**Source.** CBSE Class X main examination 2025, downloaded 2026-10-17 with owner
+approval from `www.cbse.gov.in/cbsenew/question-paper/2025/X/`:
+
+| archive | bytes | SHA-256 |
+|---|--:|---|
+| `041_Mathematics_Standard.zip` | 54,529,382 | `438fc0ef5e02bbf513d0da090c7846e64bd631d595f48eb919e1ba3dcfd69ebf` |
+| `086_Science.zip` | 43,732,463 | `5e288459ad2558db9b6ee2fa652c123e1842047daaa0452133d6d365d2dc426d` |
+
+- **What was read:** 18 papers with a text layer (Mathematics 30/1–30/3 and
+  Science 31/1–31/3, three sets each). Sets 4–6 and the visually-impaired
+  versions are scanned images and were not read (no OCR). Only the English text
+  was read; the Hindi text layer does not decode.
+- **What could not be used:** `cbseacademic.nic.in`'s sample papers, because
+  its TLS certificate expired on 2026-10-17. No official state-board site
+  exposed papers, so the source is CBSE alone.
+- **Method:** text extracted with pypdf. Sentence openers were counted first,
+  with no word list, to find the commands the papers use. Each command was then
+  counted wherever it opens a clause (sentence start, after punctuation, or
+  after "then", "hence", "and", "also", "so").
+- **Reproducibility:** the extraction scripts were scratch tools run from
+  `%TEMP%` and are not committed. The counts reproduce from the two archives by
+  the method above; the rebuild session should commit the extraction tool with
+  the new table.
+
+**Command frequencies** (clause-initial occurrences; papers containing it, of 18):
+
+| command | count | papers | | command | count | papers |
+|---|--:|--:|---|---|--:|--:|
+| Find | 116 | 13 | | Justify | 16 | 9 |
+| Write | 58 | 9 | | Determine | 12 | 10 |
+| Name | 35 | 9 | | Identify | 12 | 7 |
+| State | 34 | 9 | | Show | 11 | 9 |
+| Prove | 34 | 9 | | List | 10 | 6 |
+| Give | 33 | 10 | | Mark | 8 | 6 |
+| Select | 32 | 18 | | Mention | 4 | 4 |
+| Draw | 29 | 9 | | Define, Illustrate, Observe, Match, Choose | 3 each | 3 each |
+| Explain | 23 | 9 | | Differentiate, Describe | 1 each | 1 each |
+| Calculate | 17 | 10 | | | | |
+
+**Zero counts — evidence, not gaps.**
+
+- **"Work out": 0. "Write down": 0.** Also 0: Evaluate, Compute, Solve,
+  Verify, Suggest, Predict, Complete, Fill, Express, Obtain, Construct, Tick.
+- The sample paper's lead variant "Work out" (five questions) and the fixture's
+  fair "Write down" (F09) are absent from the target.
+- **No per-question working instruction occurs in any of the 18 papers.** No
+  sentence asks for working. "steps" and "method" appear only as subject
+  content ("Write the main steps to culture yeast", "State in brief the method
+  of preparation of …").
+- **Option choice is section-level and four-option only.** "Select and write
+  the most appropriate option out of the four options given for each of the
+  questions …" appears at the head of Section A in 9 papers. The
+  assertion–reason instruction "Select the correct answer to these questions
+  from the codes (A), (B), (C) and (D) as given below." appears in all 18.
+  There is no per-question closing such as "Choose one option only."
+
+**What a CBSE-sourced table would do** (simulated in memory, not adopted). The
+table: compute = Find / Calculate / Determine; state a fact = State / Name /
+Identify / Give / Write / Mention; the two section-level choice sentences.
+
+- **Fixture:** 8 false rejections (F02 and F05 "Work out", F09 "Write down",
+  and F11–F15, whose closing slots would fall to the ask rule) and 0 false
+  acceptances. U09 would then be caught only by the ask rule.
+- **Sample paper:** it would fail 13 of its own variants, so `generate` would
+  refuse it.
+- **Held-out set:** unaffected (55/60; 55/59 on open prose).
+- The instruction table in `examfp/fairness/instructions.py` is unchanged.
+
+**Next session: rebuild the paper on CBSE structure.** That means four-option
+MCQs with section-level choice wording, no per-question working closings, CBSE
+command phrasings, and the instruction table rebuilt from CBSE vocabulary.
+**Every capacity, identification and calibration number will then be
+re-measured against the rebuilt paper.** That covers capacity and RS packing,
+the k-sweep and region sweep, the ADR 0003 misread rate and floor, collusion and
+pair accuracy, the separation sweep and the fairness acceptance. Committing the
+benchmark output with run cards (consolidation step 7) waits for that, so it
+does not freeze numbers about to go stale.
+
+**Predictions to test on the rebuilt paper (not claims):**
+
+1. *Dropping the wording closings raises the durable fraction above the current
+   67.5%*, since wording is the fragile channel. On the current structure,
+   removing the 8 closing slots and moving to four-option MCQs gives
+   32.39 / 43.39 = **74.6%** by arithmetic.
+2. *Four-option MCQs cut each option slot from log₂(119) = 6.89 to
+   log₂(23) = 4.52 bits, so total payload should land near 38–42 bits rather
+   than 58.51* (owner's estimate). Arithmetic on the current structure (−8.00
+   bits for the closings, −7.11 for the three option slots) gives **43.39 bits**,
+   slightly above that range. Landing in 38–42 needs about 1.4–5.4 more bits
+   removed elsewhere in the rebuild.
+   - Fewer symbols may also change the RS shape (n = 7 today; 1,000 centres
+     need k = 2), so `rs_shape` must be re-checked.
+
+### Open items
+
+- **M6 acceptance is open:** 9 false rejections against a budget of 2, all
+  fail-closed misses of the instruction table. Superseded in substance by the
+  CBSE finding above: the paper is rebuilt first, then the table, then the
+  acceptance is re-run. Closing needs an owner decision
+  on the table's coverage, from a source other than the fixture (for example a
+  published command-word glossary), or on the budget itself.
+- **Separation by distance is open:** edit distance does not see near-embedding.
+  A measure that does, such as the reader's partial ratio after a simulated
+  typo, needs a design fixed before a fresh sweep. Typo-created variants
+  elsewhere in the question ("₹" vs "cs") are a further mechanism, not covered.
+- **The unit table's provenance:** it lists "km per hour" (F20), a fixture form
+  the paper does not use, so it was not built from the paper alone as the
+  instruction table is. Owner decision whether to drop it (F20 would become a
+  false rejection).
+- **Stem radicals** (data, relationships) are guarded only by NLI and the
+  numbers rule.
+- **NLI false acceptances** on held-out data (2/30, both "changed quantity"),
+  now kept out of slots by the ask rule.
+- **Readability tolerances** (words and syllables within 20%, rare words within
+  1, Zipf < 3.0) were set before scoring and have not been calibrated; no
+  fixture entry exercises readability as the deciding rule.
